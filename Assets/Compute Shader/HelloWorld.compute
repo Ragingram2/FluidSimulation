@@ -1,0 +1,654 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel Test
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+
+struct FluidParticle
+{
+    float3 position;
+    float prevDensity;
+    float3 velocity;
+    float density;
+    float3 prevVelocity;
+};
+
+RWStructuredBuffer<FluidParticle> particles;
+
+float size;
+float dt;
+float viscosity;
+float diffuseRate;
+float totalDye = 0;
+
+
+float3 POS(uint1 index)
+{
+    int z = index / (size * size);
+    index -= (z * size * size);
+    int y = index / size;
+    int x = index % size;
+    return float3(x, y, z);
+}
+
+int IX(float3 pos)
+{
+    return (int) (pos.x + (pos.z * size) + (pos.y * size * size));
+}
+int IX(int x, int y, int z)
+{
+    return IX(float3(x, y, z));
+}
+
+void set_bndVelx(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    //Left and Right bounds
+    particles[IX(float3(0, pos.y, pos.z))].velocity.x = b == 1 ? -particles[IX(float3(1, pos.y, pos.z))].velocity.x : particles[IX(float3(1, pos.y, pos.z))].velocity.x;
+    particles[IX(float3(size, pos.y, pos.z))].velocity.x = b == 1 ? -particles[IX(float3(size - 1, pos.y, pos.z))].velocity.x : particles[IX(float3(size - 1, pos.y, pos.z))].velocity.x;
+    
+    //Upper and Lower bounds
+    particles[IX(float3(pos.x, 0, pos.z))].velocity.x = b == 2 ? -particles[IX(float3(pos.x, 1, pos.z))].velocity.x : particles[IX(float3(pos.x, 1, pos.z))].velocity.x;
+    particles[IX(float3(pos.x, size, pos.z))].velocity.x = b == 2 ? -particles[IX(float3(pos.x, size - 1, pos.z))].velocity.x : particles[IX(float3(pos.x, size - 1, pos.z))].velocity.x;
+    
+    //Forward and Aft bounds
+    particles[IX(float3(pos.x, pos.y, 0))].velocity.x = b == 3 ? -particles[IX(float3(pos.x, pos.y, 1))].velocity.x : particles[IX(float3(pos.x, pos.y, 1))].velocity.x;
+    particles[IX(float3(pos.x, pos.y, size))].velocity.x = b == 3 ? -particles[IX(float3(pos.x, pos.y, size - 1))].velocity.x : particles[IX(float3(pos.x, pos.y, size - 1))].velocity.x;
+    
+    //Corners
+    //particles[IX(float3(0, 0, 0))].velocity.x = 0.33f * (particles[IX(float3(1, 0, 0))].velocity.x + particles[IX(float3(0, 1, 0))].velocity.x + particles[IX(float3(0, 0, 1))].velocity.x);
+    //particles[IX(float3(0, 0, size))].velocity.x = 0.33f * (particles[IX(float3(1, 0, size))].velocity.x + particles[IX(float3(0, 1, size))].velocity.x + particles[IX(float3(0, 0, size - 1))].velocity.x);
+    //particles[IX(float3(0, size, 0))].velocity.x = 0.33f * (particles[IX(float3(1, size, 0))].velocity.x + particles[IX(float3(0, size - 1, 0))].velocity.x + particles[IX(float3(0, size, 1))].velocity.x);
+    //particles[IX(float3(size, 0, 0))].velocity.x = 0.33f * (particles[IX(float3(size - 1, 0, 0))].velocity.x + particles[IX(float3(size, 1, 0))].velocity.x + particles[IX(float3(size, 0, 1))].velocity.x);
+    
+    //particles[IX(float3(size, size, size))].velocity.x = 0.33f * (particles[IX(float3(size - 1, size, size))].velocity.x + particles[IX(float3(size, size - 1, size))].velocity.x + particles[IX(float3(size, size, size - 1))].velocity.x);
+    //particles[IX(float3(size, size, 0))].velocity.x = 0.33f * (particles[IX(float3(size - 1, size, 0))].velocity.x + particles[IX(float3(size, size - 1, 0))].velocity.x + particles[IX(float3(size, size, 1))].velocity.x);
+    //particles[IX(float3(size, 0, size))].velocity.x = 0.33f * (particles[IX(float3(size - 1, 0, size))].velocity.x + particles[IX(float3(size, 1, size))].velocity.x + particles[IX(float3(size, 0, size - 1))].velocity.x);
+    //particles[IX(float3(0, size, size))].velocity.x = 0.33f * (particles[IX(float3(1, size, size))].velocity.x + particles[IX(float3(0, size - 1, size))].velocity.x + particles[IX(float3(0, size, size - 1))].velocity.x);
+}
+void set_bndVely(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    //Left and Right bounds
+    particles[IX(float3(0, pos.y, pos.z))].velocity.y = b == 1 ? -particles[IX(float3(1, pos.y, pos.z))].velocity.y : particles[IX(float3(1, pos.y, pos.z))].velocity.y;
+    particles[IX(float3(size, pos.y, pos.z))].velocity.y = b == 1 ? -particles[IX(float3(size - 1, pos.y, pos.z))].velocity.y : particles[IX(float3(size - 1, pos.y, pos.z))].velocity.y;
+    
+    //Upper and Lower bounds
+    particles[IX(float3(pos.x, 0, pos.z))].velocity.y = b == 2 ? -particles[IX(float3(pos.x, 1, pos.z))].velocity.y : particles[IX(float3(pos.x, 1, pos.z))].velocity.y;
+    particles[IX(float3(pos.x, size, pos.z))].velocity.y = b == 2 ? -particles[IX(float3(pos.x, size - 1, pos.z))].velocity.y : particles[IX(float3(pos.x, size - 1, pos.z))].velocity.y;
+    
+    //Forward and Aft bounds
+    particles[IX(float3(pos.x, pos.y, 0))].velocity.y = b == 3 ? -particles[IX(float3(pos.x, pos.y, 1))].velocity.y : particles[IX(float3(pos.x, pos.y, 1))].velocity.y;
+    particles[IX(float3(pos.x, pos.y, size))].velocity.y = b == 3 ? -particles[IX(float3(pos.x, pos.y, size - 1))].velocity.y : particles[IX(float3(pos.x, pos.y, size - 1))].velocity.y;
+    
+    //Corners
+    //particles[IX(float3(0, 0, 0))].velocity.y = 0.33f * (particles[IX(float3(1, 0, 0))].velocity.y + particles[IX(float3(0, 1, 0))].velocity.y + particles[IX(float3(0, 0, 1))].velocity.y);
+    //particles[IX(float3(0, 0, size))].velocity.y = 0.33f * (particles[IX(float3(1, 0, size))].velocity.y + particles[IX(float3(0, 1, size))].velocity.y + particles[IX(float3(0, 0, size - 1))].velocity.y);
+    //particles[IX(float3(0, size, 0))].velocity.y = 0.33f * (particles[IX(float3(1, size, 0))].velocity.y + particles[IX(float3(0, size - 1, 0))].velocity.y + particles[IX(float3(0, size, 1))].velocity.y);
+    //particles[IX(float3(size, 0, 0))].velocity.y = 0.33f * (particles[IX(float3(size - 1, 0, 0))].velocity.y + particles[IX(float3(size, 1, 0))].velocity.y + particles[IX(float3(size, 0, 1))].velocity.y);
+    
+    //particles[IX(float3(size, size, size))].velocity.y = 0.33f * (particles[IX(float3(size - 1, size, size))].velocity.y + particles[IX(float3(size, size - 1, size))].velocity.y + particles[IX(float3(size, size, size - 1))].velocity.y);
+    //particles[IX(float3(size, size, 0))].velocity.y = 0.33f * (particles[IX(float3(size - 1, size, 0))].velocity.y + particles[IX(float3(size, size - 1, 0))].velocity.y + particles[IX(float3(size, size, 1))].velocity.y);
+    //particles[IX(float3(size, 0, size))].velocity.y = 0.33f * (particles[IX(float3(size - 1, 0, size))].velocity.y + particles[IX(float3(size, 1, size))].velocity.y + particles[IX(float3(size, 0, size - 1))].velocity.y);
+    //particles[IX(float3(0, size, size))].velocity.y = 0.33f * (particles[IX(float3(1, size, size))].velocity.y + particles[IX(float3(0, size - 1, size))].velocity.y + particles[IX(float3(0, size, size - 1))].velocity.y);
+}
+void set_bndVelz(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    //Left and Right bounds
+    particles[IX(float3(0, pos.y, pos.z))].velocity.z = b == 1 ? -particles[IX(float3(1, pos.y, pos.z))].velocity.z : particles[IX(float3(1, pos.y, pos.z))].velocity.z;
+    particles[IX(float3(size, pos.y, pos.z))].velocity.z = b == 1 ? -particles[IX(float3(size - 1, pos.y, pos.z))].velocity.z : particles[IX(float3(size - 1, pos.y, pos.z))].velocity.z;
+    
+    //Upper and Lower bounds
+    particles[IX(float3(pos.x, 0, pos.z))].velocity.z = b == 2 ? -particles[IX(float3(pos.x, 1, pos.z))].velocity.z : particles[IX(float3(pos.x, 1, pos.z))].velocity.z;
+    particles[IX(float3(pos.x, size, pos.z))].velocity.z = b == 2 ? -particles[IX(float3(pos.x, size - 1, pos.z))].velocity.z : particles[IX(float3(pos.x, size - 1, pos.z))].velocity.z;
+    
+    //Forward and Aft bounds
+    particles[IX(float3(pos.x, pos.y, 0))].velocity.z = b == 3 ? -particles[IX(float3(pos.x, pos.y, 1))].velocity.z : particles[IX(float3(pos.x, pos.y, 1))].velocity.z;
+    particles[IX(float3(pos.x, pos.y, size))].velocity.z = b == 3 ? -particles[IX(float3(pos.x, pos.y, size - 1))].velocity.z : particles[IX(float3(pos.x, pos.y, size - 1))].velocity.z;
+    
+    ////Corners
+    //particles[IX(float3(0, 0, 0))].velocity.z = 0.33f * (particles[IX(float3(1, 0, 0))].velocity.z + particles[IX(float3(0, 1, 0))].velocity.z + particles[IX(float3(0, 0, 1))].velocity.z);
+    //particles[IX(float3(0, 0, size))].velocity.z = 0.33f * (particles[IX(float3(1, 0, size))].velocity.z + particles[IX(float3(0, 1, size))].velocity.z + particles[IX(float3(0, 0, size - 1))].velocity.z);
+    //particles[IX(float3(0, size, 0))].velocity.z = 0.33f * (particles[IX(float3(1, size, 0))].velocity.z + particles[IX(float3(0, size - 1, 0))].velocity.z + particles[IX(float3(0, size, 1))].velocity.z);
+    //particles[IX(float3(size, 0, 0))].velocity.z = 0.33f * (particles[IX(float3(size - 1, 0, 0))].velocity.z + particles[IX(float3(size, 1, 0))].velocity.z + particles[IX(float3(size, 0, 1))].velocity.z);
+    
+    //particles[IX(float3(size, size, size))].velocity.z = 0.33f * (particles[IX(float3(size - 1, size, size))].velocity.z + particles[IX(float3(size, size - 1, size))].velocity.z + particles[IX(float3(size, size, size - 1))].velocity.z);
+    //particles[IX(float3(size, size, 0))].velocity.z = 0.33f * (particles[IX(float3(size - 1, size, 0))].velocity.z + particles[IX(float3(size, size - 1, 0))].velocity.z + particles[IX(float3(size, size, 1))].velocity.z);
+    //particles[IX(float3(size, 0, size))].velocity.z = 0.33f * (particles[IX(float3(size - 1, 0, size))].velocity.z + particles[IX(float3(size, 1, size))].velocity.z + particles[IX(float3(size, 0, size - 1))].velocity.z);
+    //particles[IX(float3(0, size, size))].velocity.z = 0.33f * (particles[IX(float3(1, size, size))].velocity.z + particles[IX(float3(0, size - 1, size))].velocity.z + particles[IX(float3(0, size, size - 1))].velocity.z);
+}
+
+void set_bndPrevVelx(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    //Left and Right bounds
+    particles[IX(float3(0, pos.y, pos.z))].prevVelocity.x = b == 1 ? -particles[IX(float3(1, pos.y, pos.z))].prevVelocity.x : particles[IX(float3(1, pos.y, pos.z))].prevVelocity.x;
+    particles[IX(float3(size, pos.y, pos.z))].prevVelocity.x = b == 1 ? -particles[IX(float3(size - 1, pos.y, pos.z))].prevVelocity.x : particles[IX(float3(size - 1, pos.y, pos.z))].prevVelocity.x;
+    
+    //Upper and Lower bounds
+    particles[IX(float3(pos.x, 0, pos.z))].prevVelocity.x = b == 2 ? -particles[IX(float3(pos.x, 1, pos.z))].prevVelocity.x : particles[IX(float3(pos.x, 1, pos.z))].prevVelocity.x;
+    particles[IX(float3(pos.x, size, pos.z))].prevVelocity.x = b == 2 ? -particles[IX(float3(pos.x, size - 1, pos.z))].prevVelocity.x : particles[IX(float3(pos.x, size - 1, pos.z))].prevVelocity.x;
+    
+    //Forward and Aft bounds
+    particles[IX(float3(pos.x, pos.y, 0))].prevVelocity.x = b == 3 ? -particles[IX(float3(pos.x, pos.y, 1))].prevVelocity.x : particles[IX(float3(pos.x, pos.y, 1))].prevVelocity.x;
+    particles[IX(float3(pos.x, pos.y, size))].prevVelocity.x = b == 3 ? -particles[IX(float3(pos.x, pos.y, size - 1))].prevVelocity.x : particles[IX(float3(pos.x, pos.y, size - 1))].prevVelocity.x;
+    
+    //Corners
+    //particles[IX(float3(0, 0, 0))].prevVelocity.x = 0.33f * (particles[IX(float3(1, 0, 0))].prevVelocity + particles[IX(float3(0, 1, 0))].prevVelocity + particles[IX(float3(0, 0, 1))].prevVelocity);
+    //particles[IX(float3(0, 0, size))].prevVelocity.x = 0.33f * (particles[IX(float3(1, 0, size))].prevVelocity + particles[IX(float3(0, 1, size))].prevVelocity + particles[IX(float3(0, 0, size - 1))].prevVelocity);
+    //particles[IX(float3(0, size, 0))].prevVelocity.x = 0.33f * (particles[IX(float3(1, size, 0))].prevVelocity + particles[IX(float3(0, size - 1, 0))].prevVelocity + particles[IX(float3(0, size, 1))].prevVelocity);
+    //particles[IX(float3(size, 0, 0))].prevVelocity.x = 0.33f * (particles[IX(float3(size - 1, 0, 0))].prevVelocity + particles[IX(float3(size, 1, 0))].prevVelocity + particles[IX(float3(size, 0, 1))].prevVelocity);
+    
+    //particles[IX(float3(size, size, size))].prevVelocity.x = 0.33f * (particles[IX(float3(size - 1, size, size))].prevVelocity.x + particles[IX(float3(size, size - 1, size))].prevVelocity.x + particles[IX(float3(size, size, size - 1))].prevVelocity.x);
+    //particles[IX(float3(size, size, 0))].prevVelocity.x = 0.33f * (particles[IX(float3(size - 1, size, 0))].prevVelocity.x + particles[IX(float3(size, size - 1, 0))].prevVelocity.x + particles[IX(float3(size, size, 1))].prevVelocity.x);
+    //particles[IX(float3(size, 0, size))].prevVelocity.x = 0.33f * (particles[IX(float3(size - 1, 0, size))].prevVelocity.x + particles[IX(float3(size, 1, size))].prevVelocity.x + particles[IX(float3(size, 0, size - 1))].prevVelocity.x);
+    //particles[IX(float3(0, size, size))].prevVelocity.x = 0.33f * (particles[IX(float3(1, size, size))].prevVelocity.x + particles[IX(float3(0, size - 1, size))].prevVelocity.x + particles[IX(float3(0, size, size - 1))].prevVelocity.x);
+}
+void set_bndPrevVely(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    //Left and Right bounds
+    particles[IX(float3(0, pos.y, pos.z))].prevVelocity.y = b == 1 ? -particles[IX(float3(1, pos.y, pos.z))].prevVelocity.y : particles[IX(float3(1, pos.y, pos.z))].prevVelocity.y;
+    particles[IX(float3(size, pos.y, pos.z))].prevVelocity.y = b == 1 ? -particles[IX(float3(size - 1, pos.y, pos.z))].prevVelocity.y : particles[IX(float3(size - 1, pos.y, pos.z))].prevVelocity.y;
+    
+    //Upper and Lower bounds
+    particles[IX(float3(pos.x, 0, pos.z))].prevVelocity.y = b == 2 ? -particles[IX(float3(pos.x, 1, pos.z))].prevVelocity.y : particles[IX(float3(pos.x, 1, pos.z))].prevVelocity.y;
+    particles[IX(float3(pos.x, size, pos.z))].prevVelocity.y = b == 2 ? -particles[IX(float3(pos.x, size - 1, pos.z))].prevVelocity.y : particles[IX(float3(pos.x, size - 1, pos.z))].prevVelocity.y;
+    
+    //Forward and Aft bounds
+    particles[IX(float3(pos.x, pos.y, 0))].prevVelocity.y = b == 3 ? -particles[IX(float3(pos.x, pos.y, 1))].prevVelocity.y : particles[IX(float3(pos.x, pos.y, 1))].prevVelocity.y;
+    particles[IX(float3(pos.x, pos.y, size))].prevVelocity.y = b == 3 ? -particles[IX(float3(pos.x, pos.y, size - 1))].prevVelocity.y : particles[IX(float3(pos.x, pos.y, size - 1))].prevVelocity.y;
+    
+    //Corners
+    //particles[IX(float3(0, 0, 0))].prevVelocity.y = 0.33f * (particles[IX(float3(1, 0, 0))].prevVelocity.y + particles[IX(float3(0, 1, 0))].prevVelocity.y + particles[IX(float3(0, 0, 1))].prevVelocity.y);
+    //particles[IX(float3(0, 0, size))].prevVelocity.y = 0.33f * (particles[IX(float3(1, 0, size))].prevVelocity.y + particles[IX(float3(0, 1, size))].prevVelocity.y + particles[IX(float3(0, 0, size - 1))].prevVelocity.y);
+    //particles[IX(float3(0, size, 0))].prevVelocity.y = 0.33f * (particles[IX(float3(1, size, 0))].prevVelocity.y + particles[IX(float3(0, size - 1, 0))].prevVelocity.y + particles[IX(float3(0, size, 1))].prevVelocity.y);
+    //particles[IX(float3(size, 0, 0))].prevVelocity.y = 0.33f * (particles[IX(float3(size - 1, 0, 0))].prevVelocity.y + particles[IX(float3(size, 1, 0))].prevVelocity.y + particles[IX(float3(size, 0, 1))].prevVelocity.y);
+    
+    //particles[IX(float3(size, size, size))].prevVelocity.y = 0.33f * (particles[IX(float3(size - 1, size, size))].prevVelocity.y + particles[IX(float3(size, size - 1, size))].prevVelocity.yy + particles[IX(float3(size, size, size - 1))].prevVelocity.y);
+    //particles[IX(float3(size, size, 0))].prevVelocity.y = 0.33f * (particles[IX(float3(size - 1, size, 0))].prevVelocity.y + particles[IX(float3(size, size - 1, 0))].prevVelocity.y + particles[IX(float3(size, size, 1))].prevVelocity.y);
+    //particles[IX(float3(size, 0, size))].prevVelocity.y = 0.33f * (particles[IX(float3(size - 1, 0, size))].prevVelocity.y + particles[IX(float3(size, 1, size))].prevVelocity.y + particles[IX(float3(size, 0, size - 1))].prevVelocity.y);
+    //particles[IX(float3(0, size, size))].prevVelocity.y = 0.33f * (particles[IX(float3(1, size, size))].prevVelocity.y + particles[IX(float3(0, size - 1, size))].prevVelocity.y + particles[IX(float3(0, size, size - 1))].prevVelocity.y);
+}
+void set_bndPrevVelz(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    //Left and Right bounds
+    particles[IX(float3(0, pos.y, pos.z))].prevVelocity.z = b == 1 ? -particles[IX(float3(1, pos.y, pos.z))].prevVelocity.z : particles[IX(float3(1, pos.y, pos.z))].prevVelocity.z;
+    particles[IX(float3(size, pos.y, pos.z))].prevVelocity.z = b == 1 ? -particles[IX(float3(size - 1, pos.y, pos.z))].prevVelocity.z : particles[IX(float3(size - 1, pos.y, pos.z))].prevVelocity.z;
+    
+    //Upper and Lower bounds
+    particles[IX(float3(pos.x, 0, pos.z))].prevVelocity.z = b == 2 ? -particles[IX(float3(pos.x, 1, pos.z))].prevVelocity.z : particles[IX(float3(pos.x, 1, pos.z))].prevVelocity.z;
+    particles[IX(float3(pos.x, size, pos.z))].prevVelocity.z = b == 2 ? -particles[IX(float3(pos.x, size - 1, pos.z))].prevVelocity.z : particles[IX(float3(pos.x, size - 1, pos.z))].prevVelocity.z;
+    
+    //Forward and Aft bounds
+    particles[IX(float3(pos.x, pos.y, 0))].prevVelocity.z = b == 3 ? -particles[IX(float3(pos.x, pos.y, 1))].prevVelocity.z : particles[IX(float3(pos.x, pos.y, 1))].prevVelocity.z;
+    particles[IX(float3(pos.x, pos.y, size))].prevVelocity.z = b == 3 ? -particles[IX(float3(pos.x, pos.y, size - 1))].prevVelocity.z : particles[IX(float3(pos.x, pos.y, size - 1))].prevVelocity.z;
+    
+    //Corners
+    //particles[IX(float3(0, 0, 0))].prevVelocity.z = 0.33f * (particles[IX(float3(1, 0, 0))].prevVelocity.z + particles[IX(float3(0, 1, 0))].prevVelocity.z + particles[IX(float3(0, 0, 1))].prevVelocity.z);
+    //particles[IX(float3(0, 0, size))].prevVelocity.z = 0.33f * (particles[IX(float3(1, 0, size))].prevVelocity.z + particles[IX(float3(0, 1, size))].prevVelocity.z + particles[IX(float3(0, 0, size - 1))].prevVelocity.z);
+    //particles[IX(float3(0, size, 0))].prevVelocity.z = 0.33f * (particles[IX(float3(1, size, 0))].prevVelocity.z + particles[IX(float3(0, size - 1, 0))].prevVelocity.z + particles[IX(float3(0, size, 1))].prevVelocity.z);
+    //particles[IX(float3(size, 0, 0))].prevVelocity.z = 0.33f * (particles[IX(float3(size - 1, 0, 0))].prevVelocity.z + particles[IX(float3(size, 1, 0))].prevVelocity.z + particles[IX(float3(size, 0, 1))].prevVelocity.z);
+    
+    //particles[IX(float3(size, size, size))].prevVelocity.z = 0.33f * (particles[IX(float3(size - 1, size, size))].prevVelocity.z + particles[IX(float3(size, size - 1, size))].prevVelocity.z + particles[IX(float3(size, size, size - 1))].prevVelocity.z);
+    //particles[IX(float3(size, size, 0))].prevVelocity.z = 0.33f * (particles[IX(float3(size - 1, size, 0))].prevVelocity.z + particles[IX(float3(size, size - 1, 0))].prevVelocity.z + particles[IX(float3(size, size, 1))].prevVelocity.z);
+    //particles[IX(float3(size, 0, size))].prevVelocity.z = 0.33f * (particles[IX(float3(size - 1, 0, size))].prevVelocity.z + particles[IX(float3(size, 1, size))].prevVelocity.z + particles[IX(float3(size, 0, size - 1))].prevVelocity.z);
+    //particles[IX(float3(0, size, size))].prevVelocity.z = 0.33f * (particles[IX(float3(1, size, size))].prevVelocity.z + particles[IX(float3(0, size - 1, size))].prevVelocity.z + particles[IX(float3(0, size, size - 1))].prevVelocity.z);
+}
+
+void set_bndDensity(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    //Left and Right bounds
+    particles[IX(float3(0, pos.y, pos.z))].density = b == 1 ? -particles[IX(float3(1, pos.y, pos.z))].density : particles[IX(float3(1, pos.y, pos.z))].density;
+    particles[IX(float3(size, pos.y, pos.z))].density = b == 1 ? -particles[IX(float3(size - 1, pos.y, pos.z))].density : particles[IX(float3(size - 1, pos.y, pos.z))].density;
+    
+    //Upper and Lower bounds
+    particles[IX(float3(pos.x, 0, pos.z))].density = b == 2 ? -particles[IX(float3(pos.x, 1, pos.z))].density : particles[IX(float3(pos.x, 1, pos.z))].density;
+    particles[IX(float3(pos.x, size, pos.z))].density = b == 2 ? -particles[IX(float3(pos.x, size - 1, pos.z))].density : particles[IX(float3(pos.x, size - 1, pos.z))].density;
+    
+    //Forward and Aft bounds
+    particles[IX(float3(pos.x, pos.y, 0))].density = b == 3 ? -particles[IX(float3(pos.x, pos.y, 1))].density : particles[IX(float3(pos.x, pos.y, 1))].density;
+    particles[IX(float3(pos.x, pos.y, size))].density = b == 3 ? -particles[IX(float3(pos.x, pos.y, size - 1))].density : particles[IX(float3(pos.x, pos.y, size - 1))].density;
+    
+    //Corners
+    //particles[IX(float3(0, 0, 0))].density = 0.33f * (particles[IX(float3(1, 0, 0))].density + particles[IX(float3(0, 1, 0))].density + particles[IX(float3(0, 0, 1))].density);
+    //particles[IX(float3(0, 0, size))].density = 0.33f * (particles[IX(float3(1, 0, size))].density + particles[IX(float3(0, 1, size))].density + particles[IX(float3(0, 0, size - 1))].density);
+    //particles[IX(float3(0, size, 0))].density = 0.33f * (particles[IX(float3(1, size, 0))].density + particles[IX(float3(0, size - 1, 0))].density + particles[IX(float3(0, size, 1))].density);
+    //particles[IX(float3(size, 0, 0))].density = 0.33f * (particles[IX(float3(size - 1, 0, 0))].density + particles[IX(float3(size, 1, 0))].density + particles[IX(float3(size, 0, 1))].density);
+    
+    //particles[IX(float3(size, size, size))].density = 0.33f * (particles[IX(float3(size - 1, size, size))].density + particles[IX(float3(size, size - 1, size))].density + particles[IX(float3(size, size, size - 1))].density);
+    //particles[IX(float3(size, size, 0))].density = 0.33f * (particles[IX(float3(size - 1, size, 0))].density + particles[IX(float3(size, size - 1, 0))].density + particles[IX(float3(size, size, 1))].density);
+    //particles[IX(float3(size, 0, size))].density = 0.33f * (particles[IX(float3(size - 1, 0, size))].density + particles[IX(float3(size, 1, size))].density + particles[IX(float3(size, 0, size - 1))].density);
+    //particles[IX(float3(0, size, size))].density = 0.33f * (particles[IX(float3(1, size, size))].density + particles[IX(float3(0, size - 1, size))].density + particles[IX(float3(0, size, size - 1))].density);
+}
+
+void set_bndPrevDensity(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    //Left and Right bounds
+    particles[IX(float3(0, pos.y, pos.z))].prevDensity = b == 1 ? -particles[IX(float3(1, pos.y, pos.z))].prevDensity : particles[IX(float3(1, pos.y, pos.z))].prevDensity;
+    particles[IX(float3(size, pos.y, pos.z))].prevDensity = b == 1 ? -particles[IX(float3(size - 1, pos.y, pos.z))].prevDensity : particles[IX(float3(size - 1, pos.y, pos.z))].prevDensity;
+    
+    //Upper and Lower bounds
+    particles[IX(float3(pos.x, 0, pos.z))].prevDensity = b == 2 ? -particles[IX(float3(pos.x, 1, pos.z))].prevDensity : particles[IX(float3(pos.x, 1, pos.z))].prevDensity;
+    particles[IX(float3(pos.x, size, pos.z))].prevDensity = b == 2 ? -particles[IX(float3(pos.x, size - 1, pos.z))].prevDensity : particles[IX(float3(pos.x, size - 1, pos.z))].prevDensity;
+    
+    //Forward and Aft bounds
+    particles[IX(float3(pos.x, pos.y, 0))].prevDensity = b == 3 ? -particles[IX(float3(pos.x, pos.y, 1))].prevDensity : particles[IX(float3(pos.x, pos.y, 1))].prevDensity;
+    particles[IX(float3(pos.x, pos.y, size))].prevDensity = b == 3 ? -particles[IX(float3(pos.x, pos.y, size - 1))].prevDensity : particles[IX(float3(pos.x, pos.y, size - 1))].prevDensity;
+    
+    //Corners
+    //particles[IX(float3(0, 0, 0))].prevDensity = 0.33f * (particles[IX(float3(1, 0, 0))].prevDensity + particles[IX(float3(0, 1, 0))].prevDensity + particles[IX(float3(0, 0, 1))].prevDensity);
+    //particles[IX(float3(0, 0, size))].prevDensity = 0.33f * (particles[IX(float3(1, 0, size))].prevDensity + particles[IX(float3(0, 1, size))].prevDensity + particles[IX(float3(0, 0, size - 1))].prevDensity);
+    //particles[IX(float3(0, size, 0))].prevDensity = 0.33f * (particles[IX(float3(1, size, 0))].prevDensity + particles[IX(float3(0, size - 1, 0))].prevDensity + particles[IX(float3(0, size, 1))].prevDensity);
+    //particles[IX(float3(size, 0, 0))].prevDensity = 0.33f * (particles[IX(float3(size - 1, 0, 0))].prevDensity + particles[IX(float3(size, 1, 0))].prevDensity + particles[IX(float3(size, 0, 1))].prevDensity);
+    
+    //particles[IX(float3(size, size, size))].prevDensity = 0.33f * (particles[IX(float3(size - 1, size, size))].prevDensity + particles[IX(float3(size, size - 1, size))].prevDensity + particles[IX(float3(size, size, size - 1))].prevDensity);
+    //particles[IX(float3(size, size, 0))].prevDensity = 0.33f * (particles[IX(float3(size - 1, size, 0))].prevDensity + particles[IX(float3(size, size - 1, 0))].prevDensity + particles[IX(float3(size, size, 1))].prevDensity);
+    //particles[IX(float3(size, 0, size))].prevDensity = 0.33f * (particles[IX(float3(size - 1, 0, size))].prevDensity + particles[IX(float3(size, 1, size))].prevDensity + particles[IX(float3(size, 0, size - 1))].prevDensity);
+    //particles[IX(float3(0, size, size))].prevDensity = 0.33f * (particles[IX(float3(1, size, size))].prevDensity + particles[IX(float3(0, size - 1, size))].prevDensity + particles[IX(float3(0, size, size - 1))].prevDensity);
+    //particles[IX(float3(0, size, size))].prevDensity = 0.33f * (particles[IX(float3(1, size, size))].prevDensity + particles[IX(float3(0, size - 1, size))].prevDensity + particles[IX(float3(0, size, size - 1))].prevDensity);
+}
+
+
+void diffuseVelx(uint3 id, int b, float diff, float dt)
+{
+    int k;
+    float a = dt * diff * size * size;
+    for (k = 0; k < 4; k++)
+    {
+        float3 pos = POS(id.x);
+        particles[id.x].prevVelocity.x = (particles[id.x].velocity.x + a * (particles[IX(float3(pos.x - 1, pos.y, pos.z))].prevVelocity.x +
+                                                                                                    particles[IX(float3(pos.x + 1, pos.y, pos.z))].prevVelocity.x +
+                                                                                                    particles[IX(float3(pos.x, pos.y - 1, pos.z))].prevVelocity.x +
+                                                                                                    particles[IX(float3(pos.x, pos.y + 1, pos.z))].prevVelocity.x +
+                                                                                                    particles[IX(float3(pos.x, pos.y, pos.z - 1))].prevVelocity.x +
+                                                                                                    particles[IX(float3(pos.x, pos.y, pos.z + 1))].prevVelocity.x)) / (1 + 6 * a);
+        set_bndPrevVelx(id, b); //vel
+
+    }
+    
+
+}
+void diffuseVely(uint3 id, int b, float diff, float dt)
+{
+    int k;
+    float a = dt * diff * size * size;
+    for (k = 0; k < 4; k++)
+    {
+        float3 pos = POS(id.x);
+        particles[id.x].prevVelocity.y = (particles[id.x].velocity.y + a * (particles[IX(float3(pos.x - 1, pos.y, pos.z))].prevVelocity.y +
+                                                                                                    particles[IX(float3(pos.x + 1, pos.y, pos.z))].prevVelocity.y +
+                                                                                                    particles[IX(float3(pos.x, pos.y - 1, pos.z))].prevVelocity.y +
+                                                                                                    particles[IX(float3(pos.x, pos.y + 1, pos.z))].prevVelocity.y +
+                                                                                                    particles[IX(float3(pos.x, pos.y, pos.z - 1))].prevVelocity.y +
+                                                                                                    particles[IX(float3(pos.x, pos.y, pos.z + 1))].prevVelocity.y)) / (1 + 6 * a);
+        set_bndPrevVely(id, b); //vel
+
+    }
+    
+
+}
+void diffuseVelz(uint3 id, int b, float diff, float dt)
+{
+    int k;
+    float a = dt * diff * size * size;
+    for (k = 0; k < 4; k++)
+    {
+        float3 pos = POS(id.x);
+        particles[id.x].prevVelocity.z = (particles[id.x].velocity.z + a * (particles[IX(float3(pos.x - 1, pos.y, pos.z))].prevVelocity.z +
+                                                                                                    particles[IX(float3(pos.x + 1, pos.y, pos.z))].prevVelocity.z +
+                                                                                                    particles[IX(float3(pos.x, pos.y - 1, pos.z))].prevVelocity.z +
+                                                                                                    particles[IX(float3(pos.x, pos.y + 1, pos.z))].prevVelocity.z +
+                                                                                                    particles[IX(float3(pos.x, pos.y, pos.z - 1))].prevVelocity.z +
+                                                                                                    particles[IX(float3(pos.x, pos.y, pos.z + 1))].prevVelocity.z)) / (1 + 6 * a);
+        set_bndPrevVelz(id, b); //vel
+
+    }
+    
+
+}
+
+void diffuseDens(uint3 id, int b, float diff)
+{
+    int k;
+    float a = dt * diff * size * size;
+    for (k = 0; k < 20; k++)
+    {
+        float3 pos = POS(id.x);
+        particles[id.x].prevDensity = (particles[id.x].density + a * (particles[IX(float3(pos.x - 1, pos.y, pos.z))].prevDensity +
+                                                                                                    particles[IX(float3(pos.x + 1, pos.y, pos.z))].prevDensity +
+                                                                                                    particles[IX(float3(pos.x, pos.y - 1, pos.z))].prevDensity +
+                                                                                                    particles[IX(float3(pos.x, pos.y + 1, pos.z))].prevDensity +
+                                                                                                    particles[IX(float3(pos.x, pos.y, pos.z - 1))].prevDensity +
+                                                                                                    particles[IX(float3(pos.x, pos.y, pos.z + 1))].prevDensity)) / (1 + 6 * a);
+        set_bndPrevDensity(id, b); //dens
+
+    }
+}
+
+void advectVelx(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    float s0, t0, s1, t1, u0, u1, dt0;
+    int i0, j0, k0, i1, j1, k1;
+    dt0 = dt * (size - 1);
+    float3 components = float3(pos.x - dt0 * particles[id.x].prevVelocity.x, pos.y - dt0 * particles[id.x].prevVelocity.y, pos.z - dt0 * particles[id.x].prevVelocity.z);
+    if (components.x < 0.5f)
+    {
+        components.x = 0.5f;
+    }
+    if (components.y < 0.5f)
+    {
+        components.y = 0.5f;
+    }
+    if (components.z < 0.5f)
+    {
+        components.z = 0.5f;
+    }
+
+    if (components.x > size + 0.5f)
+    {
+        components.x = size + 0.5f;
+    }
+    if (components.y < size + 0.5f)
+    {
+        components.y = size + 0.5f;
+    }
+    if (components.z < size + 0.5f)
+    {
+        components.z = size + 0.5f;
+    }
+    i0 = components.x;
+    i1 = i0 + 1;
+    
+    j0 = components.y;
+    j1 = j0 + 1;
+    
+    k0 = components.z;
+    k1 = k0 + 1;
+    
+    s1 = components.x - i0;
+    s0 = 1 - s1;
+    t1 = components.y - j0;
+    t0 = 1 - t1;
+    u1 = components.z - k0;
+    u0 = 1 - u1;
+    
+    particles[id.x].velocity.x = s0 * (t0 * (u0 * particles[IX(i0, j0, k0)].prevVelocity.x + u1 * particles[i0, j0, k1].prevVelocity.x) + (t1 * (u0 * particles[IX(i0, j1, k0)].prevVelocity.x + u1 * particles[IX(i0, j1, k1)].prevVelocity.x))) + s1 * (t0 * (u0 * particles[IX(i1, j0, k0)].prevVelocity.x + u1 * particles[IX(i1, j0, k1)].prevVelocity.x) + t1 * (u0 * particles[IX(i1, j1, k1)].prevVelocity.x));
+
+
+    set_bndVelx(id, b);
+
+}
+void advectVely(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    float s0, t0, s1, t1, u0, u1, dt0;
+    int i0, j0, k0, i1, j1, k1;
+    dt0 = dt * (size - 1);
+    float3 components = float3(pos.x - dt0 * particles[id.x].prevVelocity.x, pos.y - dt0 * particles[id.x].prevVelocity.y, pos.z - dt0 * particles[id.x].prevVelocity.z);
+    if (components.x < 0.5f)
+    {
+        components.x = 0.5f;
+    }
+    if (components.y < 0.5f)
+    {
+        components.y = 0.5f;
+    }
+    if (components.z < 0.5f)
+    {
+        components.z = 0.5f;
+    }
+
+    if (components.x > size + 0.5f)
+    {
+        components.x = size + 0.5f;
+    }
+    if (components.y < size + 0.5f)
+    {
+        components.y = size + 0.5f;
+    }
+    if (components.z < size + 0.5f)
+    {
+        components.z = size + 0.5f;
+    }
+    i0 = components.x;
+    i1 = i0 + 1;
+    
+    j0 = components.y;
+    j1 = j0 + 1;
+    
+    k0 = components.z;
+    k1 = k0 + 1;
+    
+    s1 = components.x - i0;
+    s0 = 1 - s1;
+    t1 = components.y - j0;
+    t0 = 1 - t1;
+    u1 = components.z - k0;
+    u0 = 1 - u1;
+    
+    particles[id.x].velocity.y = s0 * (t0 * (u0 * particles[IX(i0, j0, k0)].prevVelocity.y + u1 * particles[i0, j0, k1].prevVelocity.y) + (t1 * (u0 * particles[IX(i0, j1, k0)].prevVelocity.y + u1 * particles[IX(i0, j1, k1)].prevVelocity.y))) + s1 * (t0 * (u0 * particles[IX(i1, j0, k0)].prevVelocity.y + u1 * particles[IX(i1, j0, k1)].prevVelocity.y) + t1 * (u0 * particles[IX(i1, j1, k1)].prevVelocity.y));
+
+
+    set_bndVely(id, b);
+
+}
+void advectVelz(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    float s0, t0, s1, t1, u0, u1, dt0;
+    int i0, j0, k0, i1, j1, k1;
+    dt0 = dt * (size - 1);
+    float3 components = float3(pos.x - dt0 * particles[id.x].prevVelocity.x, pos.y - dt0 * particles[id.x].prevVelocity.y, pos.z - dt0 * particles[id.x].prevVelocity.z);
+    
+    if (components.x < 0.5f)
+    {
+        components.x = 0.5f;
+    }
+    if (components.y < 0.5f)
+    {
+        components.y = 0.5f;
+    }
+    if (components.z < 0.5f)
+    {
+        components.z = 0.5f;
+    }
+
+    if (components.x > size + 0.5f)
+    {
+        components.x = size + 0.5f;
+    }
+    if (components.y < size + 0.5f)
+    {
+        components.y = size + 0.5f;
+    }
+    if (components.z < size + 0.5f)
+    {
+        components.z = size + 0.5f;
+    }
+    i0 = components.x;
+    i1 = i0 + 1;
+    
+    j0 = components.y;
+    j1 = j0 + 1;
+    
+    k0 = components.z;
+    k1 = k0 + 1;
+    
+    s1 = components.x - i0;
+    s0 = 1 - s1;
+    t1 = components.y - j0;
+    t0 = 1 - t1;
+    u1 = components.z - k0;
+    u0 = 1 - u1;
+    
+    particles[id.x].velocity.z = s0 * (t0 * (u0 * particles[IX(i0, j0, k0)].prevVelocity.z + u1 * particles[i0, j0, k1].prevVelocity.z) + (t1 * (u0 * particles[IX(i0, j1, k0)].prevVelocity.z + u1 * particles[IX(i0, j1, k1)].prevVelocity.z))) + s1 * (t0 * (u0 * particles[IX(i1, j0, k0)].prevVelocity.z + u1 * particles[IX(i1, j0, k1)].prevVelocity.z) + t1 * (u0 * particles[IX(i1, j1, k1)].prevVelocity.z));
+
+
+    set_bndVelz(id, b);
+
+}
+
+void advectDens(uint3 id, int b)
+{
+    float3 pos = POS(id.x);
+    float s0, t0, s1, t1, u0, u1, dt0;
+    int i0, j0, k0, i1, j1, k1;
+    dt0 = dt * (size - 1);
+    float3 components = float3(pos.x - dt0 * particles[id.x].velocity.x, pos.y - dt0 * particles[id.x].velocity.y, pos.z - dt0 * particles[id.x].velocity.z);
+    
+    if (components.x < 0.5f)
+    {
+        components.x = 0.5f;
+    }
+    if (components.y < 0.5f)
+    {
+        components.y = 0.5f;
+    }
+    if (components.z < 0.5f)
+    {
+        components.z = 0.5f;
+    }
+
+    if (components.x > size+0.5f)
+    {
+        components.x = size+0.5f;
+    }
+    if (components.y < size+0.5f)
+    {
+        components.y = size+0.5f;
+    }
+    if (components.z < size+0.5f)
+    {
+        components.z = size+0.5f;
+    }
+    
+    i0 = components.x;
+    i1 = i0 + 1;
+    j0 = components.y;
+    j1 = j0 + 1;
+    k0 = components.z;
+    k1 = k0 + 1;
+    
+    s1 = components.x - i0;
+    s0 = 1 - s1;
+    t1 = components.y - j0;
+    t0 = 1 - t1;
+    u1 = components.z - k0;
+    u0 = 1 - u1;
+    
+    particles[id.x].density = s0 * (t0 * (u0 * particles[IX(i0, j0, k0)].prevDensity + u1 * particles[i0, j0, k1].prevDensity) + (t1 * (u0 * particles[IX(i0, j1, k0)].prevDensity + u1 * particles[IX(i0, j1, k1)].prevDensity))) + s1 * (t0 * (u0 * particles[IX(i1, j0, k0)].prevDensity + u1 * particles[IX(i1, j0, k1)].prevDensity) + t1 * (u0 * particles[IX(i1, j1, k1)].prevDensity));
+
+    set_bndDensity(id, b);
+}
+
+void project1(uint3 id)
+{
+    float h = 1 / size;
+    float3 pos = POS(id.x);
+    particles[id.x].velocity.x = -0.5f * (1 / size) * (particles[IX(float3(pos.x + 1, pos.y, pos.z))].velocity.x - particles[IX(float3(pos.x - 1, pos.y, pos.z))].velocity.x +
+                                                                                    particles[IX(float3(pos.x, pos.y + 1, pos.z))].velocity.y - particles[IX(float3(pos.x, pos.y - 1, pos.z))].velocity.y +
+                                                                                    particles[IX(float3(pos.x, pos.y, pos.z + 1))].velocity.z - particles[IX(float3(pos.x, pos.y, pos.z - 1))].velocity.z);
+    particles[id.x].velocity.y = 0;
+    set_bndVelx(id, 0); //divergent xVel
+    set_bndVely(id, 0); //gradient yVel
+    
+    for (int k = 0; k < 4; k++)
+    {
+        particles[id.x].velocity.y = (particles[id.x].prevVelocity.y +
+                                                  particles[IX(float3(pos.x - 1, pos.y, pos.z))].velocity.y + particles[IX(float3(pos.x + 1, pos.y, pos.z))].velocity.y +
+                                                  particles[IX(float3(pos.x, pos.y - 1, pos.z))].velocity.y + particles[IX(float3(pos.x, pos.y + 1, pos.z))].velocity.y +
+                                                  particles[IX(float3(pos.x, pos.y, pos.z - 1))].velocity.y + particles[IX(float3(pos.x, pos.y, pos.z + 1))].velocity.y) / 6;
+        set_bndVely(id, 0); //gradient
+    }
+    particles[id.x].prevVelocity.x -= 0.5f * (particles[IX(float3(pos.x + 1, pos.y, pos.z))].velocity.y - particles[IX(float3(pos.x - 1, pos.y, pos.z))].velocity.y) * size;
+    particles[id.x].prevVelocity.y -= 0.5f * (particles[IX(float3(pos.x, pos.y + 1, pos.z))].velocity.y - particles[IX(float3(pos.x, pos.y - 1, pos.z))].velocity.y) * size;
+    particles[id.x].prevVelocity.z -= 0.5f * (particles[IX(float3(pos.x, pos.y, pos.z + 1))].velocity.y - particles[IX(float3(pos.x, pos.y, pos.z - 1))].velocity.y) * size;
+    
+    set_bndPrevVelx(id, 1); //xVel
+    set_bndPrevVely(id, 2); //yVel
+    set_bndPrevVelz(id, 3); //zVel
+
+}
+
+void project2(uint3 id)
+{
+    float h = 1 / size;
+    float3 pos = POS(id.x);
+    particles[id.x].prevVelocity.x = -0.5f * (1 / size) * (particles[IX(float3(pos.x + 1, pos.y, pos.z))].velocity.x - particles[IX(float3(pos.x - 1, pos.y, pos.z))].velocity.x +
+                                                                                    particles[IX(float3(pos.x, pos.y + 1, pos.z))].velocity.y - particles[IX(float3(pos.x, pos.y - 1, pos.z))].velocity.y +
+                                                                                    particles[IX(float3(pos.x, pos.y, pos.z + 1))].velocity.z - particles[IX(float3(pos.x, pos.y, pos.z - 1))].velocity.z);
+    particles[id.x].prevVelocity.y = 0;
+    
+    set_bndPrevVely(id, 0); //gradient yVel
+    set_bndPrevVelx(id, 0); //divergent xVel
+
+    
+    for (int k = 0; k < 4; k++)
+    {
+        particles[id.x].prevVelocity.y = (particles[id.x].velocity.y +
+                                                  particles[IX(float3(pos.x - 1, pos.y, pos.z))].prevVelocity.y + particles[IX(float3(pos.x + 1, pos.y, pos.z))].prevVelocity.y +
+                                                  particles[IX(float3(pos.x, pos.y - 1, pos.z))].prevVelocity.y + particles[IX(float3(pos.x, pos.y + 1, pos.z))].prevVelocity.y +
+                                                  particles[IX(float3(pos.x, pos.y, pos.z - 1))].prevVelocity.y + particles[IX(float3(pos.x, pos.y, pos.z + 1))].prevVelocity.y) / 6;
+        set_bndPrevVely(id, 0); //gradient
+    }
+    //particles[id.x].velocity -= 0.5f * (float3((particles[IX(float3(pos.x + 1, pos.y, pos.z))].prevVelocity.y - particles[IX(float3(pos.x - 1, pos.y, pos.z))].prevVelocity.y) / h, (particles[IX(float3(pos.x, pos.y + 1, pos.z))].prevVelocity.y - particles[IX(float3(pos.x, pos.y - 1, pos.z))].prevVelocity.y) / h, (particles[IX(float3(pos.x, pos.y, pos.z + 1))].prevVelocity.y - particles[IX(float3(pos.x, pos.y, pos.z - 1))].prevVelocity.y)) / h);
+    particles[id.x].velocity.x -= 0.5f * (particles[IX(float3(pos.x + 1, pos.y, pos.z))].prevVelocity.y - particles[IX(float3(pos.x - 1, pos.y, pos.z))].prevVelocity.y) * size;
+    particles[id.x].velocity.y -= 0.5f * (particles[IX(float3(pos.x, pos.y + 1, pos.z))].prevVelocity.y - particles[IX(float3(pos.x, pos.y - 1, pos.z))].prevVelocity.y) * size;
+    particles[id.x].velocity.z -= 0.5f * (particles[IX(float3(pos.x, pos.y, pos.z + 1))].prevVelocity.y - particles[IX(float3(pos.x, pos.y, pos.z - 1))].prevVelocity.y) * size;
+    set_bndVelx(id, 1); //xVel
+    set_bndVely(id, 2); //yVel
+    set_bndVelz(id, 3); //zVel
+}
+
+[numthreads(1, 1, 1)]
+void Test(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID)
+{
+    //Add Sources
+    //particles[id.x].density = id.x;
+    //particles[id.x].velocity += dt * particles[id.x].prevVelocity;
+    //particles[id.x].density += dt * particles[id.x].prevDensity;
+    
+    //Diffuse Velocity
+
+    diffuseVelx(id, 1, viscosity, dt);
+    diffuseVely(id, 2, viscosity, dt);
+    diffuseVelz(id, 3, viscosity, dt);
+    
+    //Project
+    project1(id);
+    //Advect Velocity
+    advectVelx(id, 1);
+    advectVely(id, 2);
+    advectVelz(id, 3);
+    
+    //Project
+    project2(id);
+    
+    //Diffuse Density
+    diffuseDens(id, 0, diffuseRate);
+    //Advect Density
+    advectDens(id, 0);
+    
+    //if (particles[id.x].density <= totalDye / (size * size * size))
+    //{
+    //    particles[id.x].density = totalDye / (size * size * size);
+    //}
+    
+    //if (particles[id.x].prevDensity <= totalDye / (size * size * size))
+    //{
+    //    particles[id.x].prevDensity = totalDye / (size * size * size);
+    //}
+}
+
+
+
+
+
+
+

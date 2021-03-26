@@ -1,0 +1,92 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel DensityPressureCalc
+#pragma kernel ForceCalc
+class ParticleStruct
+{
+    float3 position;
+    
+    float3 velocity;
+    
+    float3 force;
+    
+    float3 gravForce;
+    
+    float3 pressureForce;
+    
+    float3 viscosityForce;
+    
+    float density;
+    
+    float pressure;
+};
+
+RWStructuredBuffer<ParticleStruct> particles;
+
+RWStructuredBuffer<ParticleStruct> neighbors;
+
+RWStructuredBuffer<int> neighborCounts;
+float mass;
+float smoothingRadius;
+float restingDensity;
+float gasConstant;
+float viscosity;
+float3 G;
+
+[numthreads(1, 1, 1)]
+void DensityPressureCalc(uint3 id : SV_DispatchThreadID)
+{
+    float pi = 3.141592653589793238462643383279f;
+    float distance;
+    float3 diff;
+    
+    for (int i = id.x * neighborCounts[id.x]; i < (id.x + 1) * neighborCounts[id.x]; i++)
+    {
+    
+        diff = float3(particles[id.x].position - neighbors[i].position);
+        distance = sqrt(pow(diff.x, 2.0f) + pow(diff.y, 2.0f) + pow(diff.z, 2.0f));
+        if (distance > 0)
+        {
+            if (distance < smoothingRadius)
+            {
+                float difference = smoothingRadius - distance;
+                particles[id.x].density += max(mass * 315.0f / (64.0f * pi * pow(smoothingRadius, 9.0f) * pow(difference, 3.0f)), restingDensity);
+            }
+            particles[id.x].pressure = max(gasConstant * (particles[id.x].density - restingDensity), 0);
+        }
+    }
+}
+
+[numthreads(1, 1, 1)]
+void ForceCalc(uint3 id : SV_DispatchThreadID)
+{
+    float pi = 3.141592653589793238462643383279f;
+    float distance;
+    float3 diff;
+    
+     //Force Calculation
+    float3 forcePressure = float3(0, 0, 0);
+    float3 forceViscosity = float3(0, 0, 0);
+    float3 forceGravity = float3(0, 0, 0);
+    for (int i = id.x * neighborCounts[id.x]; i < id.x + 1 * neighborCounts[id.x]; i++)
+    {
+        float3 direction = neighbors[i].position - particles[id.x].position;
+        distance = sqrt(pow(direction.x, 2.0f) + pow(direction.y, 2.0f) + pow(direction.z, 2.0f));
+    
+        if (distance > 0)
+        {
+            if (distance < smoothingRadius)
+            {
+                float difference = smoothingRadius - distance;
+                forcePressure += (-1 * normalize(direction) * mass * (particles[id.x].pressure + neighbors[i].pressure) / (2.0f * neighbors[i].density) * (-45.0f / (pi * pow(smoothingRadius, 6.0f)))) * pow(difference, 2.0f);
+                forceViscosity += viscosity * mass * (neighbors[i].velocity - particles[id.x].velocity) / neighbors[i].density * (45.0f / (pi * pow(smoothingRadius, 6.0f))) * (difference);
+            }
+    
+            forceGravity = G * particles[id.x].density;
+        
+            particles[id.x].gravForce = forceGravity;
+            particles[id.x].pressureForce = forcePressure;
+            particles[id.x].viscosityForce = forcePressure;
+            particles[id.x].force = forceGravity + forceViscosity + forcePressure;
+        }
+    }
+}

@@ -1,0 +1,536 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel Velocity
+
+struct FluidParticle
+{
+    float3 position;
+    
+    float dt;
+    float diff;
+    float visc;
+    
+    float s;
+    float density;
+    
+    float Vx;
+    float Vy;
+    float Vz;
+
+    float Vx0;
+    float Vy0;
+    float Vz0;
+};
+
+RWStructuredBuffer<FluidParticle> particles;
+uint sizeX;
+uint sizeY;
+uint sizeZ;
+
+float velX[1000];
+float velY[1000];
+float velZ[1000];
+         
+float velX0[1000];
+float velY0[1000];
+float velZ0[1000];
+
+uint3 POS(uint index)
+{
+    uint x = index % sizeX;
+    uint y = (index / sizeX) % sizeY;
+    uint z = index / (sizeX * sizeY);
+
+    return uint3(x, y, z);
+}
+
+uint IX(uint3 pos)
+{
+    return pos.x + sizeX * (pos.y + sizeY * pos.z);
+}
+
+uint IX(uint x, uint y, uint z)
+{
+    return IX(uint3(x, y, z));
+}
+
+void set_bndXPrevVel(float id, int b, float x, int N)
+{
+    float3 pos = POS(id);
+    float i, j, k;
+    
+    i = pos.x;
+    j = pos.y;
+    k = pos.z;
+    
+    if (sizeZ > 2)
+    {
+        particles[IX(i, j, 0)].Vx0 = b == 3 ? -particles[IX(i, j, 1)].Vx0 : particles[IX(i, j, 1)].Vx0;
+        particles[IX(i, j, sizeZ - 1)].Vx0 = b == 3 ? -particles[IX(i, j, sizeZ - 2)].Vx0 : particles[IX(i, j, sizeZ - 2)].Vx0;
+    }
+    if (sizeY > 2)
+    {
+        particles[IX(i, 0, k)].Vx0 = b == 2 ? -particles[IX(i, 1, k)].Vx0 : particles[IX(i, 1, k)].Vx0;
+        particles[IX(i, sizeY - 1, k)].Vx0 = b == 2 ? -particles[IX(i, sizeY - 2, k)].Vx0 : particles[IX(i, sizeY - 2, k)].Vx0;
+    }
+    if (sizeX > 2)
+    {
+        particles[IX(0, j, k)].Vx0 = b == 1 ? -particles[IX(1, j, k)].Vx0 : particles[IX(1, j, k)].Vx0;
+        particles[IX(sizeX - 1, j, k)].Vx0 = b == 1 ? -particles[IX(sizeX - 2, j, k)].Vx0 : particles[IX(sizeX - 2, j, k)].Vx0;
+    }
+}
+void set_bndYPrevVel(float id, int b, float x, int N)
+{
+    float3 pos = POS(id);
+    float i, j, k;
+    
+    i = pos.x;
+    j = pos.y;
+    k = pos.z;
+    
+    if (sizeZ > 2)
+    {
+        particles[IX(i, j, 0)].Vy0 = b == 3 ? -particles[IX(i, j, 1)].Vy0 : particles[IX(i, j, 1)].Vy0;
+        particles[IX(i, j, sizeZ - 1)].Vy0 = b == 3 ? -particles[IX(i, j, sizeZ - 2)].Vy0 : particles[IX(i, j, sizeZ - 2)].Vy0;
+    }
+    
+    if (sizeY > 2)
+    {
+        particles[IX(i, 0, k)].Vy0 = b == 2 ? -particles[IX(i, 1, k)].Vy0 : particles[IX(i, 1, k)].Vy0;
+        particles[IX(i, sizeY - 1, k)].Vy0 = b == 2 ? -particles[IX(i, sizeY - 2, k)].Vy0 : particles[IX(i, sizeY - 2, k)].Vy0;
+    }
+    
+    if (sizeX > 2)
+    {
+        particles[IX(0, j, k)].Vy0 = b == 1 ? -particles[IX(1, j, k)].Vy0 : particles[IX(1, j, k)].Vy0;
+        particles[IX(sizeX - 1, j, k)].Vy0 = b == 1 ? -particles[IX(sizeX - 2, j, k)].Vy0 : particles[IX(sizeX - 2, j, k)].Vy0;
+    }
+}
+void set_bndZPrevVel(float id, int b, float x, int N)
+{
+    float3 pos = POS(id);
+    float i, j, k;
+    
+    i = pos.x;
+    j = pos.y;
+    k = pos.z;
+    if (sizeZ > 2)
+    {
+        particles[IX(i, j, 0)].Vz0 = b == 3 ? -particles[IX(i, j, 1)].Vz0 : particles[IX(i, j, 1)].Vz0;
+        particles[IX(i, j, sizeZ - 1)].Vz0 = b == 3 ? -particles[IX(i, j, sizeZ - 2)].Vz0 : particles[IX(i, j, sizeZ - 2)].Vz0;
+    }
+    if (sizeY > 2)
+    {
+        particles[IX(i, 0, k)].Vz0 = b == 2 ? -particles[IX(i, 1, k)].Vz0 : particles[IX(i, 1, k)].Vz0;
+        particles[IX(i, sizeY - 1, k)].Vz0 = b == 2 ? -particles[IX(i, sizeY - 2, k)].Vz0 : particles[IX(i, sizeY - 2, k)].Vz0;
+    }
+    if (sizeX > 2)
+    {
+        particles[IX(0, j, k)].Vz0 = b == 1 ? -particles[IX(1, j, k)].Vz0 : particles[IX(1, j, k)].Vz0;
+        particles[IX(sizeX - 1, j, k)].Vz0 = b == 1 ? -particles[IX(sizeX - 2, j, k)].Vz0 : particles[IX(sizeX - 2, j, k)].Vz0;
+    }
+}
+
+void set_bndXVel(float id, int b, float x, int N)
+{
+    float3 pos = POS(id);
+    float i, j, k;
+    
+    i = pos.x;
+    j = pos.y;
+    k = pos.z;
+    
+    if (sizeZ > 2)
+    {
+        particles[IX(i, j, 0)].Vx = b == 3 ? -particles[IX(i, j, 1)].Vx : particles[IX(i, j, 1)].Vx;
+        particles[IX(i, j, sizeZ - 1)].Vx = b == 3 ? -particles[IX(i, j, sizeZ - 2)].Vx : particles[IX(i, j, sizeZ - 2)].Vx;
+    }
+    
+    if (sizeY > 2)
+    {
+        particles[IX(i, 0, k)].Vx = b == 2 ? -particles[IX(i, 1, k)].Vx : particles[IX(i, 1, k)].Vx;
+        particles[IX(i, sizeY - 1, k)].Vx = b == 2 ? -particles[IX(i, sizeY - 2, k)].Vx : particles[IX(i, sizeY - 2, k)].Vx;
+    }
+    
+    if (sizeX > 2)
+    {
+        particles[IX(0, j, k)].Vx = b == 1 ? -particles[IX(1, j, k)].Vx : particles[IX(1, j, k)].Vx;
+        particles[IX(sizeX - 1, j, k)].Vx = b == 1 ? -particles[IX(sizeX - 2, j, k)].Vx : particles[IX(sizeX - 2, j, k)].Vx;
+    }
+}
+void set_bndYVel(float id, int b, float x, int N)
+{
+    float3 pos = POS(id);
+    float i, j, k;
+    
+    i = pos.x;
+    j = pos.y;
+    k = pos.z;
+    
+    if (sizeZ > 2)
+    {
+        particles[IX(i, j, 0)].Vy = b == 3 ? -particles[IX(i, j, 1)].Vy : particles[IX(i, j, 1)].Vy;
+        particles[IX(i, j, sizeZ - 1)].Vy = b == 3 ? -particles[IX(i, j, sizeZ - 2)].Vy : particles[IX(i, j, sizeZ - 2)].Vy;
+    }
+    
+    if (sizeY > 2)
+    {
+        particles[IX(i, 0, k)].Vy = b == 2 ? -particles[IX(i, 1, k)].Vy : particles[IX(i, 1, k)].Vy;
+        particles[IX(i, sizeY - 1, k)].Vy = b == 2 ? -particles[IX(i, sizeY - 2, k)].Vy : particles[IX(i, sizeY - 2, k)].Vy;
+    }
+    
+    if (sizeX > 2)
+    {
+        particles[IX(0, j, k)].Vy = b == 1 ? -particles[IX(1, j, k)].Vy : particles[IX(1, j, k)].Vy;
+        particles[IX(sizeX - 1, j, k)].Vy = b == 1 ? -particles[IX(sizeX - 2, j, k)].Vy : particles[IX(sizeX - 2, j, k)].Vy;
+    }
+}
+void set_bndZVel(float id, int b, float x, int N)
+{
+    float3 pos = POS(id);
+    float i, j, k;
+    
+    i = pos.x;
+    j = pos.y;
+    k = pos.z;
+    
+    if (sizeZ > 2)
+    {
+        particles[IX(i, j, 0)].Vz = b == 3 ? -particles[IX(i, j, 1)].Vz : particles[IX(i, j, 1)].Vz;
+        particles[IX(i, j, sizeZ - 1)].Vz = b == 3 ? -particles[IX(i, j, sizeZ - 2)].Vz : particles[IX(i, j, sizeZ - 2)].Vz;
+    }
+    
+    if (sizeY > 2)
+    {
+        particles[IX(i, 0, k)].Vz = b == 2 ? -particles[IX(i, 1, k)].Vz : particles[IX(i, 1, k)].Vz;
+        particles[IX(i, sizeY - 1, k)].Vz = b == 2 ? -particles[IX(i, sizeY - 2, k)].Vz : particles[IX(i, sizeY - 2, k)].Vz;
+    }
+    
+    if (sizeX > 2)
+    {
+        particles[IX(0, j, k)].Vz = b == 1 ? -particles[IX(1, j, k)].Vz : particles[IX(1, j, k)].Vz;
+        particles[IX(sizeX - 1, j, k)].Vz = b == 1 ? -particles[IX(sizeX - 2, j, k)].Vz : particles[IX(sizeX - 2, j, k)].Vz;
+    }
+}
+
+void set_bndDiv1(float id, int b, float x, int N)
+{
+    set_bndYVel(id, b, x, N);
+}
+void set_bndP1(float id, int b, float x, int N)
+{
+    set_bndXVel(id, b, x, N);
+}
+
+void set_bndDiv2(float id, int b, float x, int N)
+{
+    set_bndYPrevVel(id, b, x, N);
+}
+void set_bndP2(float id, int b, float x, int N)
+{
+    set_bndXPrevVel(id, b, x, N);
+}
+
+
+void lin_solve(float id, int b, float x, float x0, float a, float c, int iter, int N)
+{
+    float cRecip = 1.0f / c;
+    float3 pos = POS(id);
+    int i, j, m;
+    i = pos.x;
+    j = pos.y;
+    m = pos.z;
+    
+    if (b == 1)
+    {
+        for (int k = 0; k < iter; k++)
+        {
+            particles[id].Vx0 =
+                        (particles[id].Vx
+                            + a * (particles[IX(i + 1, j, m)].Vx0
+                                    + particles[IX(i - 1, j, m)].Vx0
+                                    + particles[IX(i, j + 1, m)].Vx0
+                                    + particles[IX(i, j - 1, m)].Vx0
+                                    + particles[IX(i, j, m + 1)].Vx0
+                                    + particles[IX(i, j, m - 1)].Vx0
+                           )) * cRecip;
+        }
+        set_bndXPrevVel(id, b, x, N);
+    }
+    else if (b == 2)
+    {
+        for (int k = 0; k < iter; k++)
+        {
+            particles[id].Vy0 =
+                        (particles[id].Vy
+                            + a * (particles[IX(i + 1, j, m)].Vy0
+                                    + particles[IX(i - 1, j, m)].Vy0
+                                    + particles[IX(i, j + 1, m)].Vy0
+                                    + particles[IX(i, j - 1, m)].Vy0
+                                    + particles[IX(i, j, m + 1)].Vy0
+                                    + particles[IX(i, j, m - 1)].Vy0
+                           )) * cRecip;
+        }
+        set_bndYPrevVel(id, b, x, N);
+    }
+    else if (b == 3)
+    {
+        for (int k = 0; k < iter; k++)
+        {
+            particles[id].Vz0 =
+                        (particles[id].Vz
+                            + a * (particles[IX(i + 1, j, m)].Vz0
+                                    + particles[IX(i - 1, j, m)].Vz0
+                                    + particles[IX(i, j + 1, m)].Vz0
+                                    + particles[IX(i, j - 1, m)].Vz0
+                                    + particles[IX(i, j, m + 1)].Vz0
+                                    + particles[IX(i, j, m - 1)].Vz0
+                           )) * cRecip;
+        }
+        set_bndZPrevVel(id, b, x, N);
+    }
+}
+
+void lin_solve2(float id, int b, float x, float x0, float a, float c, int iter, int N)
+{
+    float cRecip = 1.0f / c;
+    float3 pos = POS(id);
+    int i, j, m;
+    i = pos.x;
+    j = pos.y;
+    m = pos.z;
+    
+    if (b == 1)
+    {
+        for (int k = 0; k < iter; k++)
+        {
+            particles[id].Vx =
+                        (particles[id].Vy
+                            + a * (particles[IX(i + 1, j, m)].Vx
+                                    + particles[IX(i - 1, j, m)].Vx
+                                    + particles[IX(i, j + 1, m)].Vx
+                                    + particles[IX(i, j - 1, m)].Vx
+                                    + particles[IX(i, j, m + 1)].Vx
+                                    + particles[IX(i, j, m - 1)].Vx
+                           )) * cRecip;
+        }
+        set_bndXVel(id, b, x, N);
+    }
+    else if (b == 2)
+    {
+        for (int k = 0; k < iter; k++)
+        {
+            particles[id].Vx0 =
+                        (particles[id].Vy0
+                            + a * (particles[IX(i + 1, j, m)].Vx0
+                                    + particles[IX(i - 1, j, m)].Vx0
+                                    + particles[IX(i, j + 1, m)].Vx0
+                                    + particles[IX(i, j - 1, m)].Vx0
+                                    + particles[IX(i, j, m + 1)].Vx0
+                                    + particles[IX(i, j, m - 1)].Vx0
+                           )) * cRecip;
+        }
+        set_bndXPrevVel(id, b, x, N);
+    }
+}
+
+void project(float num, float id, float velocX, float velocY, float velocZ, float p, float div, int iter, int N)
+{
+    float3 pos = POS(id);
+    float i, j, k;
+    i = pos.x;
+    j = pos.y;
+    k = pos.z;
+    
+    
+    if (num == 0)
+    {
+        particles[IX(i, j, k)].Vy = -0.5f * (
+                         particles[IX(i + 1, j, k)].Vx0
+                        - particles[IX(i - 1, j, k)].Vx0
+                        + particles[IX(i, j + 1, k)].Vy0
+                        - particles[IX(i, j - 1, k)].Vy0
+                        + particles[IX(i, j, k + 1)].Vz0
+                        - particles[IX(i, j, k - 1)].Vz0
+                    ) / N;
+        particles[IX(i, j, k)].Vx = 0;
+    
+        set_bndDiv1(id, 0, div, N);
+        set_bndP1(id, 0, p, N);
+        lin_solve2(id, 0, p, div, 1, 6, iter, N);
+        
+        particles[IX(i, j, k)].Vx0 -= 0.5f * (particles[IX(i + 1, j, k)].Vx
+                                                - particles[IX(i - 1, j, k)].Vx) * sizeX;
+        particles[IX(i, j, k)].Vy0 -= 0.5f * (particles[IX(i, j + 1, k)].Vx
+                                                - particles[IX(i, j - 1, k)].Vx) * sizeY;
+        particles[IX(i, j, k)].Vz0 -= 0.5f * (particles[IX(i, j, k + 1)].Vx
+                                                - particles[IX(i, j, k - 1)].Vx) * sizeZ;
+        set_bndXPrevVel(id, 1, velocX, N);
+        set_bndYPrevVel(id, 2, velocY, N);
+        set_bndYPrevVel(id, 3, velocZ, N);
+    }
+    else if (num == 1)
+    {
+        particles[IX(i, j, k)].Vy0 = -0.5f * (
+                         particles[IX(i + 1, j, k)].Vx
+                        - particles[IX(i - 1, j, k)].Vx
+                        + particles[IX(i, j + 1, k)].Vy
+                        - particles[IX(i, j - 1, k)].Vy
+                        + particles[IX(i, j, k + 1)].Vz
+                        - particles[IX(i, j, k - 1)].Vz
+                    ) / N;
+        particles[IX(i, j, k)].Vx0 = 0;
+    
+        set_bndDiv2(id, 0, div, N);
+        set_bndP2(id, 0, p, N);
+        lin_solve2(id, 0, p, div, 1, 6, iter, N);
+        
+        particles[IX(i, j, k)].Vx -= 0.5f * (particles[IX(i + 1, j, k)].Vx0
+                                                - particles[IX(i - 1, j, k)].Vx0) * sizeX;
+        particles[IX(i, j, k)].Vy -= 0.5f * (particles[IX(i, j + 1, k)].Vx0
+                                                - particles[IX(i, j - 1, k)].Vx0) * sizeY;
+        particles[IX(i, j, k)].Vz -= 0.5f * (particles[IX(i, j, k + 1)].Vx0
+                                                - particles[IX(i, j, k - 1)].Vx0) * sizeZ;
+        set_bndXVel(id, 1, velocX, sizeX);
+        set_bndYVel(id, 2, velocY, sizeY);
+        set_bndYVel(id, 3, velocZ, sizeZ);
+    }
+}
+
+void Diffuse(float id, float b, float x, float x0, float visc, float dt, int iter, int N)
+{
+    float a = dt * visc * (sizeX - 2) * (sizeY - 2);
+    lin_solve(id, b, x, x0, a, 1 + 6 * a, iter, N);
+}
+
+void Advect(float id, float b, float d, float d0, float velX, float velY, float velZ, float dt, int N)
+{
+    float3 pos = POS(id);
+    float i0, i1, j0, j1, k0, k1;
+    
+    float dtx = dt * (sizeX - 2);
+    float dty = dt * (sizeY - 2);
+    float dtz = dt * (sizeZ - 2);
+    
+    float s0, s1, t0, t1, u0, u1;
+    float tmp1, tmp2, tmp3, x, y, z;
+    
+    float Nfloat = N;
+    float ifloat, jfloat, kfloat;
+    int i, j, k;
+    
+    i = pos.x;
+    j = pos.y;
+    k = pos.z;
+    
+    ifloat = i;
+    jfloat = j;
+    kfloat = k;
+    
+    tmp1 = dtx * particles[IX(i, j, k)].Vx0;
+    tmp2 = dty * particles[IX(i, j, k)].Vy0;
+    tmp3 = dtz * particles[IX(i, j, k)].Vz0;
+    x = ifloat - tmp1;
+    y = jfloat - tmp2;
+    z = kfloat - tmp3;
+                
+    if (x < 0.5f)
+        x = 0.5f;
+    if (x > sizeX + 0.5f)
+        x = sizeX + 0.5f;
+    i0 = int(x);
+    i1 = i0 + 1.0f;
+    if (y < 0.5f)
+        y = 0.5f;
+    if (y > sizeY + 0.5f)
+        y = sizeY + 0.5f;
+    j0 = int(y);
+    j1 = j0 + 1.0f;
+    if (z < 0.5f)
+        z = 0.5f;
+    if (z > sizeZ + 0.5f)
+        z = sizeZ + 0.5f;
+    k0 = int(z);
+    k1 = k0 + 1.0f;
+                
+    s1 = x - i0;
+    s0 = 1.0f - s1;
+    t1 = y - j0;
+    t0 = 1.0f - t1;
+    u1 = z - k0;
+    u0 = 1.0f - u1;
+                
+    int i0i = i0;
+    int i1i = i1;
+    int j0i = j0;
+    int j1i = j1;
+    int k0i = k0;
+    int k1i = k1;
+    
+    if (b == 1)
+    {
+        particles[IX(i, j, k)].Vx =
+                
+                    s0 * (t0 * (u0 * particles[IX(i0i, j0i, k0i)].Vx0
+                                + u1 * particles[IX(i0i, j0i, k1i)].Vx0)
+                        + (t1 * (u0 * particles[IX(i0i, j1i, k0i)].Vx0
+                                + u1 * particles[IX(i0i, j1i, k1i)].Vx0)))
+                   + s1 * (t0 * (u0 * particles[IX(i1i, j0i, k0i)].Vx0
+                                + u1 * particles[IX(i1i, j0i, k1i)].Vx0)
+                        + (t1 * (u0 * particles[IX(i1i, j1i, k0i)].Vx0
+                                + u1 * particles[IX(i1i, j1i, k1i)].Vx0)));
+        set_bndXVel(id, b, d, N);
+    }
+    else if (b == 2)
+    {
+        particles[IX(i, j, k)].Vy =
+                
+                    s0 * (t0 * (u0 * particles[IX(i0i, j0i, k0i)].Vy0
+                                + u1 * particles[IX(i0i, j0i, k1i)].Vy0)
+                        + (t1 * (u0 * particles[IX(i0i, j1i, k0i)].Vy0
+                                + u1 * particles[IX(i0i, j1i, k1i)].Vy0)))
+                   + s1 * (t0 * (u0 * particles[IX(i1i, j0i, k0i)].Vy0
+                                + u1 * particles[IX(i1i, j0i, k1i)].Vy0)
+                        + (t1 * (u0 * particles[IX(i1i, j1i, k0i)].Vy0
+                                + u1 * particles[IX(i1i, j1i, k1i)].Vy0)));
+        set_bndYVel(id, b, d, N);
+    }
+    else if (b == 3)
+    {
+        particles[IX(i, j, k)].Vz =
+                
+                    s0 * (t0 * (u0 * particles[IX(i0i, j0i, k0i)].Vz0
+                                + u1 * particles[IX(i0i, j0i, k1i)].Vz0)
+                        + (t1 * (u0 * particles[IX(i0i, j1i, k0i)].Vz0
+                                + u1 * particles[IX(i0i, j1i, k1i)].Vz0)))
+                   + s1 * (t0 * (u0 * particles[IX(i1i, j0i, k0i)].Vz0
+                                + u1 * particles[IX(i1i, j0i, k1i)].Vz0)
+                        + (t1 * (u0 * particles[IX(i1i, j1i, k0i)].Vz0
+                                + u1 * particles[IX(i1i, j1i, k1i)].Vz0)));
+        set_bndZVel(id, b, d, N);
+    }
+        
+}
+
+[numthreads(1, 1, 1)]
+void Velocity(uint3 id : SV_DispatchThreadID)
+{
+    float index = id.x;
+    
+    float visc = particles[id.x].visc;
+    float dt = particles[id.x].dt;
+    int iter = 4;
+
+    
+    Diffuse(index, 1, particles[id.x].Vx0, particles[id.x].Vx, visc, dt, iter, sizeX);
+    Diffuse(index, 2, particles[id.x].Vy0, particles[id.x].Vy, visc, dt, iter, sizeY);
+    Diffuse(index, 3, particles[id.x].Vz0, particles[id.x].Vz, visc, dt, iter, sizeZ);
+    
+    project(0, index, velX0[0], velY0[0], velZ0[0], velX[0], velY[0], iter, sizeZ);
+    
+    Advect(index, 1, velX[0], velX0[0], particles[id.x].Vx0, particles[id.x].Vy0, particles[id.x].Vz0, dt, sizeX);
+    Advect(index, 2, velY[0], velY0[0], particles[id.x].Vx0, particles[id.x].Vy0, particles[id.x].Vz0, dt, sizeY);
+    Advect(index, 3, velZ[0], velZ0[0], particles[id.x].Vx0, particles[id.x].Vy0, particles[id.x].Vz0, dt, sizeZ);
+
+    project(1, index, velX[0], velY[0], velZ[0], velX0[0], velY0[0], iter, sizeZ);
+
+}
