@@ -10,24 +10,26 @@ public class Client
     public Vector3 size;
     public Vector3Int[] indicies;
     public Vector3 velocity;
+    public GameObject gameObject;
     public string key;
 
     public void MoveClient((Vector3 minBnd, Vector3 maxBnd) bounds)
     {
         Vector3 tempPosition = position + (velocity * Time.deltaTime);
-        if (tempPosition.x <= bounds.minBnd.x || tempPosition.x >= bounds.maxBnd.x)
+        if (tempPosition.x < bounds.minBnd.x || tempPosition.x > bounds.maxBnd.x)
         {
             velocity.x *= -1;
         }
-        if (tempPosition.y <= bounds.minBnd.y || tempPosition.y >= bounds.maxBnd.y)
+        if (tempPosition.y < bounds.minBnd.y || tempPosition.y > bounds.maxBnd.y)
         {
             velocity.y *= -1;
         }
-        if (tempPosition.z <= bounds.minBnd.z || tempPosition.z >= bounds.maxBnd.z)
+        if (tempPosition.z < bounds.minBnd.z || tempPosition.z > bounds.maxBnd.z)
         {
             velocity.z *= -1;
         }
         position += velocity * Time.deltaTime;
+        gameObject.transform.position = position;
     }
 }
 
@@ -43,55 +45,50 @@ public class SpatialHashing : MonoBehaviour
     private Vector3 searchSize;
     [SerializeField]
     private Material mat;
+    [SerializeField]
+    private int particleCount = 25;
     Vector3 cellSize;
     private float width;
     private float height;
     private float depth;
     private Dictionary<string, HashSet<Client>> cells = new Dictionary<string, HashSet<Client>>();
-    private List<Client> clients = new List<Client>();
-    private List<GameObject> clientGos = new List<GameObject>();
-    private Dictionary<Vector3,GameObject> cellGos = new Dictionary<Vector3,GameObject>();
+    private Client[] clients;
     private Client target;
     private HashSet<Client> nearby;
 
     private void Start()
     {
-        bounds = (((-Vector3.one) * dimensions.magnitude / 2f) + gridCenter, (Vector3.one * dimensions.magnitude / 2f) + gridCenter);
+        clients = new Client[particleCount];
+        bounds = (-Vector3.one, Vector3.one );
+        bounds.minBnd.x *= dimensions.x/2;
+        bounds.minBnd.y *= dimensions.y/2;
+        bounds.minBnd.z *= dimensions.z/2;
+        bounds.minBnd += gridCenter;
+
+        bounds.maxBnd.x *= dimensions.x/2;
+        bounds.maxBnd.y *= dimensions.y/2;
+        bounds.maxBnd.z *= dimensions.z/2;
+        bounds.maxBnd += gridCenter;
+
         width = bounds.maxBnd.x - bounds.minBnd.x;
         height = bounds.maxBnd.y - bounds.minBnd.y;
         depth = bounds.maxBnd.z - bounds.minBnd.z;
+        Debug.Log(width);
+        Debug.Log(height);
+        Debug.Log(depth);
         cellSize = new Vector3(width / dimensions.x, height / dimensions.y, depth / dimensions.z);
-        Debug.Log("Dim Mag: " + dimensions.magnitude);
-        Debug.Log("CellSize: " + cellSize);
 
-
-        for (int i = 0; i < 25; i++)
+        Vector3 randPos;
+        for (int i = 0; i < particleCount; i++)
         {
-            Vector3 randPos = Random.insideUnitSphere;
-            randPos.x *= dimensions.x;
-            randPos.y *= dimensions.y;
-            randPos.z *= dimensions.z;
-            var client = NewClient(randPos, Vector3.one);
+            randPos = Random.insideUnitSphere;
+            randPos.x *= bounds.maxBnd.x;
+            randPos.y *= bounds.maxBnd.y;
+            randPos.z *= bounds.maxBnd.z;
+            var client = NewClient(i, randPos, Vector3.one);
             if (i == 0)
             {
                 target = client;
-            }
-        }
-
-        for (float x = bounds.minBnd.x; x < bounds.maxBnd.x; ++x)
-        {
-            for (float y = bounds.minBnd.y; y < bounds.maxBnd.y; ++y)
-            {
-                for (float z = bounds.minBnd.z; z < bounds.maxBnd.z; ++z)
-                {
-                    GameObject go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                    go.transform.position = new Vector3(x * cellSize.x, y * cellSize.y, z * cellSize.z) - (bounds.minBnd+Vector3.one);
-                    go.transform.localScale = cellSize;
-                    go.GetComponent<MeshRenderer>().material = mat;
-                    go.GetComponent<MeshRenderer>().material.color = new Color(1, 1, 0, .1f);
-                    go.SetActive(false);
-                    cellGos.Add(new Vector3(x,y,z),go);
-                }
             }
         }
     }
@@ -104,100 +101,59 @@ public class SpatialHashing : MonoBehaviour
         }
         foreach (Client client in clients)
         {
-            UpdateClient(client, Random.insideUnitSphere * 10);
+            UpdateClient(client);
         }
         nearby = FindNearby(target.position, searchSize);
-        for (int i = 0; i < clients.Count; i++)
-        {
-            if (nearby.Contains(clients[i]))
-            {
-                clientGos[i].GetComponent<MeshRenderer>().material.color = Color.green;
-            }
-            else
-            {
-                clientGos[i].GetComponent<MeshRenderer>().material.color = Color.red;
-            }
-            //lientGos[i].transform.position = new Vector3(Mathf.Floor(clients[i].position.x/2), Mathf.Floor(clients[i].position.y/2), Mathf.Floor(clients[i].position.z/2));
-            clientGos[i].transform.position = new Vector3(clients[i].position.x, clients[i].position.y , clients[i].position.z);
-        }
-        clientGos[clients.IndexOf(target)].GetComponent<MeshRenderer>().material.color = Color.blue;
-
-
-
-        string[] comps;
-        Vector3 pos;
-        //resets search area box (Pretty slow IK)
-        comps = target.key.Split('.');
-        pos = new Vector3(int.Parse(comps[0]), int.Parse(comps[1]), int.Parse(comps[2]));
-        pos += bounds.minBnd;
-        cellGos[pos].SetActive(false);
-
-        foreach (string key in cells.Keys)
-        {
-            comps = key.Split('.');
-            pos = new Vector3(float.Parse(comps[0]), float.Parse(comps[1]), float.Parse(comps[2]));
-            pos += bounds.minBnd;
-            if (cells[key].Count > 0)
-            {
-                cellGos[pos].SetActive(true);
-            }
-            else
-            {
-                cellGos[pos].SetActive(false);
-            }
-        }
-
-        if (nearby != null)
-        {
-            foreach (Client client in nearby)
-            {
-                comps = client.key.Split('.');
-                pos = new Vector3(int.Parse(comps[0]), int.Parse(comps[1]), int.Parse(comps[2]));
-                pos += bounds.minBnd;
-                cellGos[pos].GetComponent<MeshRenderer>().material.color = new Color(0,1,1,.5f);
-            }
-        }
-
-
-        //search area
-        comps = target.key.Split('.');
-        pos = new Vector3(int.Parse(comps[0]), int.Parse(comps[1]), int.Parse(comps[2]));
-        pos += bounds.minBnd;
-        cellGos[pos].GetComponent<MeshRenderer>().material.color = new Color(0, 1, 0, .5f);
-        cellGos[pos].SetActive(true);
-
-        //Debug.DrawLine(bounds.minBnd, bounds.maxBnd);
-
     }
 
     private void OnDrawGizmos()
     {
-        Gizmos.DrawSphere(bounds.minBnd,.5f);
-        Gizmos.DrawSphere(bounds.maxBnd,.5f);
-        Gizmos.DrawWireCube(gridCenter, new Vector3(width, height, depth));
+        float totalCellCount = dimensions.x * dimensions.y * dimensions.z;
+        int x = 0;
+        int y = 0;
+        int z = 0;
+        Gizmos.DrawSphere(bounds.minBnd, .5f);
+        Gizmos.DrawSphere(bounds.maxBnd, .5f);
+        for (int i = 0; i < totalCellCount - 1; i++)
+        {
+            if (x > 0 &&  x % dimensions.x == 0)
+            {
+                x = 0;
+                y++;
+                if (y % dimensions.y == 0)
+                {
+                    y = 0;
+                    z++;
+                }
+            }
+            
+            Gizmos.DrawWireCube(gridCenter + new Vector3(x * cellSize.x, y * cellSize.y, z * cellSize.z) + bounds.minBnd+new Vector3(.5f,.5f,.5f), cellSize);
+            x++;
+        }
+        Gizmos.DrawWireCube(gridCenter, cellSize);
     }
 
-    public void UpdateClient(Client _client, Vector3 velocity)
+    public void UpdateClient(Client _client)
     {
         _client.MoveClient(bounds);
         removeClient(_client);
         insertClient(_client);
     }
 
-    public Client NewClient(Vector3 _position, Vector3 _size)
+    public Client NewClient(int index, Vector3 _position, Vector3 _size)
     {
+        var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        go.transform.position = gridCenter + _position;
         var client = new Client()
         {
             position = _position,
             size = _size,
-            velocity = Random.insideUnitSphere*2,
+            velocity = Random.insideUnitSphere * 2,
+            gameObject = go,
             indicies = null,
             key = "0.0.0"
         };
-        var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        go.transform.position = gridCenter + _position;
-        clients.Add(client);
-        clientGos.Add(go);
+        clients[index] = client;
         insertClient(client);
         return client;
     }
