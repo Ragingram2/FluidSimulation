@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.Profiling;
 using Debug = UnityEngine.Debug;
 
-public class SmoothedParticleHydrodynamics : MonoBehaviour
+public class OldSmoothedParticleHydrodynamics : MonoBehaviour
 {
     [SerializeField]
     private ComputeShader shader;
@@ -128,7 +128,6 @@ public class SmoothedParticleHydrodynamics : MonoBehaviour
     public List<Particle> CalculateNeighbors(Particle pi, int index)
     {
         List<Particle> neighbors = new List<Particle>();
-
         for (int i = 0; i < particles.Count; i++)
         {
             if (particles[i] == pi)
@@ -140,6 +139,7 @@ public class SmoothedParticleHydrodynamics : MonoBehaviour
                 distances[index].Add(r);
             }
         }
+
         return neighbors;
     }
 
@@ -151,19 +151,12 @@ public class SmoothedParticleHydrodynamics : MonoBehaviour
         Profiler.EndSample();
 
         Profiler.BeginSample("Calculating all the neighbors");
-        try
+        for (int i = 0; i < particles.Count; i++)
         {
-            for (int i = 0; i < particles.Count; i++)
-            {
-                List<Particle> neighbors = CalculateNeighbors(particles[i], i);
-                neighborCounts.Add(neighbors.Count);
-                allNeighbors.AddRange(neighbors);
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.Log(e.Message);
-            Debug.Break();
+            distances.Add(new List<float>());
+            List<Particle> neighbors = CalculateNeighbors(particles[i], i);
+            neighborCounts.Add(neighbors.Count);
+            allNeighbors.AddRange(neighbors);
         }
         Profiler.EndSample();
 
@@ -177,6 +170,7 @@ public class SmoothedParticleHydrodynamics : MonoBehaviour
                 {
                     try
                     {
+                        Debug.Log("Distance: "+distances[i][j]);
                         particles[i].Density = Mathf.Max(ParticleDensity(particles[i], distances[i][j]), restingDensity);
                     }
                     catch (Exception e)

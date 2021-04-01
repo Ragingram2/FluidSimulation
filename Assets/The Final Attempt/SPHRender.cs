@@ -13,11 +13,11 @@ public class SPHRender : MonoBehaviour
     [SerializeField]
     private GameObject source;
     [SerializeField]
-    private Vector3 size;
+    private Vector3 gridCenter;
     [SerializeField]
-    private Vector3 position;
+    private Vector3 dimensions;
     [SerializeField]
-    private Vector3 resolution;
+    private (Vector3 minBnd, Vector3 maxBnd) bounds;
     [SerializeField]
     private Vector3 damDimensions;
     [SerializeField]
@@ -39,6 +39,13 @@ public class SPHRender : MonoBehaviour
     [SerializeField]
     private bool particleDraw;
     Vector3 scale;
+    [SerializeField]
+    private Vector3 size;
+
+    private float width;
+    private float height;
+    private float depth;
+    Vector3 cellSize;
 #pragma warning disable CS0108 // 'SPHRender.particleSystem' hides inherited member 'Component.particleSystem'. Use the new keyword if hiding was intended.
     private ParticleSystem particleSystem;
 #pragma warning restore CS0108 // 'SPHRender.particleSystem' hides inherited member 'Component.particleSystem'. Use the new keyword if hiding was intended.
@@ -47,34 +54,75 @@ public class SPHRender : MonoBehaviour
     int lastParticleIndex = 0;
 #pragma warning restore CS0414 // The field 'SPHRender.lastParticleIndex' is assigned but its value is never used
 
-    private SmoothedParticleHydrodynamics sph;
+    private OldSmoothedParticleHydrodynamics sph;
+    private FastSmoothedParticleHydrodynamics sph2;
     private List<GameObject> renderedParticles;
     bool wait = false;
     // Start is called before the first frame update
     void Start()
     {
-        sph = GetComponent<SmoothedParticleHydrodynamics>();
-        sph.initSPH((int)resolution.x, (int)resolution.y, (int)resolution.z);
+        bounds = (-Vector3.one, Vector3.one);
+        bounds.minBnd.x *= dimensions.x / 2;
+        bounds.minBnd.y *= dimensions.y / 2;
+        bounds.minBnd.z *= dimensions.z / 2;
+        bounds.minBnd += gridCenter;
+
+        bounds.maxBnd.x *= dimensions.x / 2;
+        bounds.maxBnd.y *= dimensions.y / 2;
+        bounds.maxBnd.z *= dimensions.z / 2;
+        bounds.maxBnd += gridCenter;
+
+        width = bounds.maxBnd.x - bounds.minBnd.x;
+        height = bounds.maxBnd.y - bounds.minBnd.y;
+        depth = bounds.maxBnd.z - bounds.minBnd.z;
+
+        cellSize = new Vector3(width / dimensions.x, height / dimensions.y, depth / dimensions.z);
+
+        sph = GetComponent<OldSmoothedParticleHydrodynamics>();
+        sph2 = GetComponent<FastSmoothedParticleHydrodynamics>();
+
+        if (sph != null)
+        {
+            sph.initSPH((int)width, (int)height, (int)depth);
+        }
+        else if (sph2 != null)
+        {
+            sph2.initSPH((int)width, (int)height, (int)depth, bounds,cellSize);
+        }
+
         renderedParticles = new List<GameObject>();
     }
 
     // Update is called once per frame
     void Update()
     {
-        scale = new Vector3((size.x / resolution.x), (size.y / resolution.y), (size.z / resolution.z));
         if (dam)
         {
             if (Input.GetKeyUp(KeyCode.F))
             {
-                for (int x = 1; x < resolution.x/(sph.SmoothingRadius * 2)-((resolution.x / (sph.SmoothingRadius * 2))-damDimensions.x); x++)
+                if (sph != null)
                 {
-                    for (int y = 1; y < resolution.y / (sph.SmoothingRadius * 2) - ((resolution.y / (sph.SmoothingRadius * 2)) - damDimensions.y); y++)
+                    for (int x = 1; x < dimensions.x / (sph.SmoothingRadius * 2) - ((dimensions.x / (sph.SmoothingRadius * 2)) - damDimensions.x); x++)
                     {
-                        for (int z = 1; z < resolution.z / (sph.SmoothingRadius * 2) - ((resolution.z / (sph.SmoothingRadius * 2)) - damDimensions.z); z++)
+                        for (int y = 1; y < dimensions.y / (sph.SmoothingRadius * 2) - ((dimensions.y / (sph.SmoothingRadius * 2)) - damDimensions.y); y++)
                         {
-                            //sph.spawnParticle(new Vector3((x * sph.SmoothingRadius) + UnityEngine.Random.Range(0, 1f), (y * sph.SmoothingRadius), (z * sph.SmoothingRadius) + UnityEngine.Random.Range(0, 1f)));
-                            //sph.spawnParticle(new Vector3((x * (sph.SmoothingRadius*1.5f)) + UnityEngine.Random.value, (y * (sph.SmoothingRadius * 1.5f)) + UnityEngine.Random.value, (z * (sph.SmoothingRadius * 1.5f)) + UnityEngine.Random.value)+spawnPos);
-                            sph.spawnParticle(new Vector3(x,y,z)+spawnPos);
+                            for (int z = 1; z < dimensions.z / (sph.SmoothingRadius * 2) - ((dimensions.z / (sph.SmoothingRadius * 2)) - damDimensions.z); z++)
+                            {
+                                sph.spawnParticle(new Vector3(x, y, z) + spawnPos);
+                            }
+                        }
+                    }
+                }
+                else if (sph2 != null)
+                {
+                    for (int x = 1; x < dimensions.x / (sph2.SmoothingRadius * 2) - ((dimensions.x / (sph2.SmoothingRadius * 2)) - damDimensions.x); x++)
+                    {
+                        for (int y = 1; y < dimensions.y / (sph2.SmoothingRadius * 2) - ((dimensions.y / (sph2.SmoothingRadius * 2)) - damDimensions.y); y++)
+                        {
+                            for (int z = 1; z < dimensions.z / (sph2.SmoothingRadius * 2) - ((dimensions.z / (sph2.SmoothingRadius * 2)) - damDimensions.z); z++)
+                            {                               
+                                sph2.spawnParticle(new Vector3(x, y, z) + spawnPos);
+                            }
                         }
                     }
                 }
@@ -89,13 +137,27 @@ public class SPHRender : MonoBehaviour
         }
         if (particleDraw)
         {
-            for (int i = 0; i < sph.Particles.Count; i++)
+            if (sph != null)
             {
-                if (i > renderedParticles.Count - 1)
+                for (int i = 0; i < sph.Particles.Count; i++)
                 {
-                    renderedParticles.Add(Instantiate(sphere, new Vector3(0, 0, 0), Quaternion.identity, parent));
+                    if (i > renderedParticles.Count - 1)
+                    {
+                        renderedParticles.Add(Instantiate(sphere, new Vector3(0, 0, 0), Quaternion.identity, parent));
+                    }
+                    renderedParticles[i].transform.localPosition = new Vector3(sph.Particles[i].Position.x, sph.Particles[i].Position.y, sph.Particles[i].Position.z );
                 }
-                renderedParticles[i].transform.localPosition = new Vector3(sph.Particles[i].Position.x * scale.x, sph.Particles[i].Position.y * scale.y, sph.Particles[i].Position.z * scale.z);
+            }
+            else
+            {
+                for (int i = 0; i < sph2.Particles.Count; i++)
+                {
+                    if (i > renderedParticles.Count - 1)
+                    {
+                        renderedParticles.Add(Instantiate(sphere, new Vector3(0, 0, 0), Quaternion.identity, parent));
+                    }
+                    renderedParticles[i].transform.localPosition = new Vector3(sph2.Particles[i].position.x , sph2.Particles[i].position.y, sph2.Particles[i].position.z );
+                }
             }
         }
     }
@@ -104,19 +166,25 @@ public class SPHRender : MonoBehaviour
     {
         wait = true;
         yield return new WaitForSeconds(num);
-        sph.spawnParticle(spawnPos + new Vector3(UnityEngine.Random.value * 5, UnityEngine.Random.value * 5, UnityEngine.Random.value * 5));
+        if (sph != null)
+        {
+            sph.spawnParticle(spawnPos + new Vector3(UnityEngine.Random.value * 5, UnityEngine.Random.value * 5, UnityEngine.Random.value * 5));
+        }
+        else
+        {
+            sph2.spawnParticle(spawnPos + new Vector3(UnityEngine.Random.value * 5, UnityEngine.Random.value * 5, UnityEngine.Random.value * 5));
+        }
         wait = false;
     }
 
     private void OnDrawGizmos()
     {
         Gizmos.color = Color.white;
-        Gizmos.DrawWireCube(position + size / 2, size);
+        Gizmos.DrawWireCube(gridCenter + size / 2, size);
         if (Velocity)
         {
             if (sph != null)
             {
-
                 for (int i = 0; i < sph.Particles.Count; i++)
                 {
                     if (i > renderedParticles.Count - 1)
@@ -125,18 +193,37 @@ public class SPHRender : MonoBehaviour
                     Gizmos.DrawRay(renderedParticles[i].transform.localPosition, sph.Particles[i].Velocity.normalized * Mathf.Clamp(sph.Particles[i].Velocity.normalized.magnitude, 0f, 1f));
                 }
             }
+            else if (sph2 != null)
+            {
+                for (int i = 0; i < sph2.Particles.Count; i++)
+                {
+                    if (i > renderedParticles.Count - 1)
+                        continue;
+                    Gizmos.color = Color.blue;
+                    Gizmos.DrawRay(renderedParticles[i].transform.localPosition, sph2.Particles[i].velocity.normalized * Mathf.Clamp(sph2.Particles[i].velocity.normalized.magnitude, 0f, 1f));
+                }
+            }
         }
         if (Force)
         {
             if (sph != null)
             {
-
                 for (int i = 0; i < sph.Particles.Count; i++)
                 {
                     if (i > renderedParticles.Count - 1)
                         continue;
                     Gizmos.color = Color.white;
                     Gizmos.DrawRay(renderedParticles[i].transform.localPosition, sph.Particles[i].Force.normalized * Mathf.Clamp(sph.Particles[i].Force.normalized.magnitude, 0f, 1f));
+                }
+            }
+            else if (sph2 != null)
+            {
+                for (int i = 0; i < sph2.Particles.Count; i++)
+                {
+                    if (i > renderedParticles.Count - 1)
+                        continue;
+                    Gizmos.color = Color.white;
+                    Gizmos.DrawRay(renderedParticles[i].transform.localPosition, sph2.Particles[i].force.normalized * Mathf.Clamp(sph2.Particles[i].force.normalized.magnitude, 0f, 1f));
                 }
             }
         }
@@ -152,6 +239,16 @@ public class SPHRender : MonoBehaviour
                     Gizmos.DrawRay(renderedParticles[i].transform.localPosition, sph.Particles[i].GravForce.normalized * Mathf.Clamp(sph.Particles[i].GravForce.normalized.magnitude, 0f, 1f));
                 }
             }
+            else if (sph2 != null)
+            {
+                for (int i = 0; i < sph2.Particles.Count; i++)
+                {
+                    if (i > renderedParticles.Count - 1)
+                        continue;
+                    Gizmos.color = Color.green;
+                    Gizmos.DrawRay(renderedParticles[i].transform.localPosition, sph2.Particles[i].gravForce.normalized * Mathf.Clamp(sph2.Particles[i].gravForce.normalized.magnitude, 0f, 1f));
+                }
+            }
         }
         if (PressureForce)
         {
@@ -165,6 +262,16 @@ public class SPHRender : MonoBehaviour
                     Gizmos.DrawRay(renderedParticles[i].transform.localPosition, sph.Particles[i].PressureForce.normalized * Mathf.Clamp(sph.Particles[i].PressureForce.normalized.magnitude, 0f, 1f));
                 }
             }
+            else if (sph2 != null)
+            {
+                for (int i = 0; i < sph2.Particles.Count; i++)
+                {
+                    if (i > renderedParticles.Count - 1)
+                        continue;
+                    Gizmos.color = Color.red;
+                    Gizmos.DrawRay(renderedParticles[i].transform.localPosition, sph2.Particles[i].pressureForce.normalized * Mathf.Clamp(sph2.Particles[i].pressureForce.normalized.magnitude, 0f, 1f));
+                }
+            }
         }
         if (ViscosityForce)
         {
@@ -176,6 +283,16 @@ public class SPHRender : MonoBehaviour
                         continue;
                     Gizmos.color = Color.yellow;
                     Gizmos.DrawRay(renderedParticles[i].transform.localPosition, sph.Particles[i].ViscosityForce.normalized * Mathf.Clamp(sph.Particles[i].ViscosityForce.normalized.magnitude, 0f, 1f));
+                }
+            }
+            else if (sph2 != null)
+            {
+                for (int i = 0; i < sph2.Particles.Count; i++)
+                {
+                    if (i > renderedParticles.Count - 1)
+                        continue;
+                    Gizmos.color = Color.yellow;
+                    Gizmos.DrawRay(renderedParticles[i].transform.localPosition, sph2.Particles[i].viscosityForce.normalized * Mathf.Clamp(sph2.Particles[i].viscosityForce.normalized.magnitude, 0f, 1f));
                 }
             }
         }

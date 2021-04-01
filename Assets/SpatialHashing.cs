@@ -4,7 +4,7 @@ using UnityEngine;
 using System.Linq;
 
 
-public class Client
+public class Particle
 {
     public Vector3 position;
     public Vector3 size;
@@ -51,14 +51,14 @@ public class SpatialHashing : MonoBehaviour
     private float width;
     private float height;
     private float depth;
-    private Dictionary<string, HashSet<Client>> cells = new Dictionary<string, HashSet<Client>>();
-    private Client[] clients;
-    private Client target;
-    private HashSet<Client> nearby;
+    private Dictionary<string, HashSet<Particle>> cells = new Dictionary<string, HashSet<Particle>>();
+    private Particle[] clients;
+    private Particle target;
+    private HashSet<Particle> nearby;
 
     private void Start()
     {
-        clients = new Client[particleCount];
+        clients = new Particle[particleCount];
         bounds = (-Vector3.one, Vector3.one );
         bounds.minBnd.x *= dimensions.x/2;
         bounds.minBnd.y *= dimensions.y/2;
@@ -99,7 +99,7 @@ public class SpatialHashing : MonoBehaviour
         {
             nearby.Clear();
         }
-        foreach (Client client in clients)
+        foreach (Particle client in clients)
         {
             UpdateClient(client);
         }
@@ -133,18 +133,18 @@ public class SpatialHashing : MonoBehaviour
         Gizmos.DrawWireCube(gridCenter, cellSize);
     }
 
-    public void UpdateClient(Client _client)
+    public void UpdateClient(Particle _client)
     {
         _client.MoveClient(bounds);
         removeClient(_client);
         insertClient(_client);
     }
 
-    public Client NewClient(int index, Vector3 _position, Vector3 _size)
+    public Particle NewClient(int index, Vector3 _position, Vector3 _size)
     {
         var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         go.transform.position = gridCenter + _position;
-        var client = new Client()
+        var client = new Particle()
         {
             position = _position,
             size = _size,
@@ -158,7 +158,7 @@ public class SpatialHashing : MonoBehaviour
         return client;
     }
 
-    private void insertClient(Client _client)
+    private void insertClient(Particle _client)
     {
         float xPos, yPos, zPos, width, height, depth;
         xPos = _client.position.x;
@@ -183,7 +183,7 @@ public class SpatialHashing : MonoBehaviour
                     string key = generateKey(x, y, z);
                     if (!cells.ContainsKey(key))
                     {
-                        cells[key] = new HashSet<Client>();
+                        cells[key] = new HashSet<Particle>();
                     }
                     _client.key = key;
                     cells[key].Add(_client);
@@ -191,7 +191,7 @@ public class SpatialHashing : MonoBehaviour
             }
         }
     }
-    private void removeClient(Client _client)
+    private void removeClient(Particle _client)
     {
         Vector3Int i1, i2;
         i1 = _client.indicies[0];
@@ -209,7 +209,7 @@ public class SpatialHashing : MonoBehaviour
             }
         }
     }
-    public HashSet<Client> FindNearby(Vector3 _position, Vector3 _searchArea)
+    public HashSet<Particle> FindNearby(Vector3 _position, Vector3 _searchArea)
     {
         float xPos, yPos, zPos, width, height, depth;
         xPos = _position.x;
@@ -222,7 +222,7 @@ public class SpatialHashing : MonoBehaviour
         var i1 = getCellIndex(xPos - width / 2f, yPos - height / 2f, zPos - depth / 2f);
         var i2 = getCellIndex(xPos + width / 2f, yPos + height / 2f, zPos + depth / 2f);
 
-        var clients = new HashSet<Client>();
+        var clients = new HashSet<Particle>();
 
         for (int x = i1[0], xn = i2[0]; x <= xn; ++x)
         {
