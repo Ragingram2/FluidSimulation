@@ -39,7 +39,7 @@ public class OldSmoothedParticleHydrodynamics : MonoBehaviour
 
     private int neighborCount;
 
-    private float gravityMultiplicator = 20.0f;
+    private float gravityMultiplicator = 1.0f;
 
     private Vector3 size = new Vector3(0, 0, 0);
 
@@ -170,7 +170,7 @@ public class OldSmoothedParticleHydrodynamics : MonoBehaviour
                 {
                     try
                     {
-                        Debug.Log("Distance: "+distances[i][j]);
+                        //Debug.Log("Distance: "+distances[i][j]);
                         particles[i].Density = Mathf.Max(ParticleDensity(particles[i], distances[i][j]), restingDensity);
                     }
                     catch (Exception e)
@@ -240,7 +240,7 @@ public class OldSmoothedParticleHydrodynamics : MonoBehaviour
             }
             Profiler.EndSample();
 
-            forceGravity = G * particles[i].Density * gravityMultiplicator;
+            forceGravity = G * particles[i].Density*smoothingRadius;
 
             Profiler.BeginSample("Setting particle properties");
             particles[i].GravForce = forceGravity;
